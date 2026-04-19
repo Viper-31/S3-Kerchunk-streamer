@@ -44,3 +44,34 @@ def _to_iso_utc (value:Any) -> str:
             value= value.replace(tzinfo=UTC)
         return value.astimezone(UTC).isoformat()
     return str(value)
+
+"""Build Acacia S3 access keys & access bucket from config.yaml"""
+def build_storage_clients(kp: dict[str, Any], access_key: str, secret_key: str):
+    s3_cfg = kp["s3"]
+
+    client_kwargs = {
+        "endpoint_url": s3_cfg["endpoint_url"],
+        "region_name": s3_cfg.get("region_name", "us-east-1"),
+    }
+    config_kwargs = {
+        "signature_version": "s3v4",
+        "s3": {"addressing_style": "path"},
+    }
+
+    fs = s3fs.S3FileSystem(
+        key=access_key,
+        secret=secret_key,
+        client_kwargs=client_kwargs,
+        config_kwargs=config_kwargs,
+    )
+
+    s3_client = boto3.client(
+        "s3",
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        config=Config(**config_kwargs),
+        **client_kwargs,
+    )
+
+    return fs, s3_client
+
