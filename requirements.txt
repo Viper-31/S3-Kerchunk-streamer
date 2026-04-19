@@ -59,6 +59,7 @@ executing==1.2.0
 facets-overview==1.1.1
 fastapi==0.128.0
 fastjsonschema==2.21.1
+fastparquet==2026.3.0
 filelock==3.17.0
 fonttools==4.55.3
 fqdn==1.5.1
