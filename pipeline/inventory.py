@@ -163,3 +163,33 @@ def _iter_exact_key_object(s3_client: Any, bucket: str, flow: dict[str, Any]):
         flow_id=flow["id"],
     )
 
+"""
+Scan over all specified buckets
+"""
+def scan_inventory(kp: dict[str, Any], s3_client: Any) -> dict[str, dict[str, Any]]:
+    bucket = kp["s3"]["bucket"]
+    page_size = int(kp.get("execution", {}).get("list_page_size", 1000))
+    objects_by_key: dict[str, dict[str, Any]] = {}
+
+    for flow in kp["source_flows"]:
+        if not flow.get("enabled", True):
+            continue
+
+        mode= flow["mode"]
+        if mode =="prefix_regex":
+            iterator= _iter_prefix_regex_objects(s3_client, bucket, flow, page_size)
+        elif mode == "exact_key":
+            iterator= _iter_exact_key_object(s3_client, bucket, flow, page_size)
+        else:
+            raise ValueError(f"Unsupported flow mode: {mode}")
+        
+        for obj in iterator:
+            if obj.key in objects_by_key:
+                raise ValueError(
+                    f"Duplicate source key detected across flows: {obj.key}. "
+                    "Flow selectors must be mutually exclusive."
+                )
+            objects_by_key[obj.key]= obj.to_ledger_record()
+
+    return objects_by_key
+
