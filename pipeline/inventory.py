@@ -14,7 +14,10 @@ from botocore.exceptions import ClientError
 
 LEDGER_SCHEMA_VERSION= 1
 
-"""Define Inventory class to store current object metadata (key, etag, ...)"""
+"""
+Define MasterLedger as JSON to store current object metadata (key, etag, ...).
+Allows tracking of new object additions/modifications.
+"""
 @dataclass(frozen==True)
 class InventoryObject:
     key: str
@@ -74,4 +77,28 @@ def build_storage_clients(kp: dict[str, Any], access_key: str, secret_key: str):
     )
 
     return fs, s3_client
+
+"""Load MasterLedger returning its contents"""
+def load_ledger(ledger_path: str) -> dict[str:Any]:
+    p= Path(ledger_path)
+    if not p.exists():
+        return {
+            "schema_version": LEDGER_SCHEMA_VERSION,
+            "updated_at": None,
+            "objects": {},
+        }
+    with p.open("r", encoding= "utf-8") as fh:
+        payload= json.load(fh)
+    
+    if payload.get("schema_version") != LEDGER_SCHEMA_VERSION:
+        raise ValueError(
+            f"Unsupported ledger schema version= {payload.get('schema_version')}, "
+            f"expected {LEDGER_SCHEMA_VERSION}"
+        )
+    
+    objects= payload.get("objects",{})
+    if not isinstance(objects,dict):
+        raise ValueError("Ledger objects must be a dict keyed by a source key")
+    
+    return payload
 
