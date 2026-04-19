@@ -102,3 +102,64 @@ def load_ledger(ledger_path: str) -> dict[str:Any]:
     
     return payload
 
+"""
+Iterate over objects to collect .nc files
+"""
+def _iter_prefix_regex_objects(
+        s3_client: Any,
+        bucket: str,
+        flow: dict[str, Any],
+        page_size: int,
+):
+    flow_id= flow["id"]
+    prefix= flow["prefix"]
+    pattern= re.compile(flow["key_regex"])
+
+    paginator= s3_client.get_paginator("list_objects_v2")
+    pages= paginator.paginate(
+        Bucket= bucket,
+        Prefix= prefix,
+        PaginationConfig= {"PageSize": page_size},
+    )
+
+    #Only care about NetCDF file objects
+    for page in pages:
+        for obj in page.get("Contents",[]):
+            key= obj["Key"]
+            if not key.endswith(".nc"):
+                continue
+            if not pattern.match(key):
+                continue
+
+            yield InventoryObject(
+                key=key,
+                etag=_normalise_etag(obj.get("ETag")),
+                last_modified=_to_iso_utc(obj.get("LastModified")),
+                size=int(obj.get("Size", 0)),
+                flow_id=flow_id,    
+            )
+
+"""
+Catch 404, NoSuchKey, NotFound errors
+"""
+def _iter_exact_key_object(s3_client: Any, bucket: str, flow: dict[str, Any]):
+    key = flow["exact_key"]
+    if not key.endswith(".nc"):
+        return
+
+    try:
+        head = s3_client.head_object(Bucket=bucket, Key=key)
+    except ClientError as exc:
+        err = str(exc.response.get("Error", {}).get("Code", ""))
+        if err in {"404", "NoSuchKey", "NotFound"}:
+            return
+        raise
+
+    yield InventoryObject(
+        key=key,
+        etag=_normalise_etag(head.get("ETag")),
+        last_modified=_to_iso_utc(head.get("LastModified")),
+        size=int(head.get("ContentLength", 0)),
+        flow_id=flow["id"],
+    )
+
