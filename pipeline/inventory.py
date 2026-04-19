@@ -14,23 +14,20 @@ from botocore.exceptions import ClientError
 
 LEDGER_SCHEMA_VERSION= 1
 
-"""
-Define MasterLedger as JSON to store current object metadata (key, etag, ...).
-Allows tracking of new object additions/modifications.
-"""
-@dataclass(frozen==True)
-class InventoryObject:
+"""Ledger row model for one source object used in incremental diffing."""
+@dataclass(frozen=True)
+class MasterLedger:
     key: str
     etag: str
     last_modified: str
     size: int
     flow_id: str
 
-    # Record to ledger as dict
+    # Convert the dataclass into the stored ledger row format.
     def to_ledger_record(self) -> dict[str,Any]:
         return asdict(self)
     
-#Get ISO-format datetime adjusted to local timezone in
+# Return current UTC timestamp in ISO format for ledger updated_at.
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -39,16 +36,16 @@ def _normalise_etag(raw: str | None) -> str:
         return ""
     return raw.strip ('"')
 
-# This seems redundant
+# Normalize S3 metadata timestamps into UTC ISO strings before diff comparison.
 def _to_iso_utc (value:Any) -> str: 
-    #If value is datetime data-type
+    # S3 metadata may be tz-aware datetimes while tests may pass strings.
     if isinstance(value,datetime):
         if value.tzinfo is None:
             value= value.replace(tzinfo=UTC)
         return value.astimezone(UTC).isoformat()
     return str(value)
 
-"""Build Acacia S3 access keys & access bucket from config.yaml"""
+"""Create both s3fs and boto3 clients from the validated config and secrets."""
 def build_storage_clients(kp: dict[str, Any], access_key: str, secret_key: str):
     s3_cfg = kp["s3"]
 
@@ -78,8 +75,8 @@ def build_storage_clients(kp: dict[str, Any], access_key: str, secret_key: str):
 
     return fs, s3_client
 
-"""Load MasterLedger returning its contents"""
-def load_ledger(ledger_path: str) -> dict[str:Any]:
+"""Load existing ledger from disk, or initialize an empty ledger structure."""
+def load_ledger(ledger_path: str) -> dict[str,Any]:
     p= Path(ledger_path)
     if not p.exists():
         return {
@@ -103,7 +100,7 @@ def load_ledger(ledger_path: str) -> dict[str:Any]:
     return payload
 
 """
-Iterate over objects to collect .nc files
+Yield NetCDF objects matching prefix + regex flow selectors.
 """
 def _iter_prefix_regex_objects(
         s3_client: Any,
@@ -131,7 +128,7 @@ def _iter_prefix_regex_objects(
             if not pattern.match(key):
                 continue
 
-            yield InventoryObject(
+            yield MasterLedger(
                 key=key,
                 etag=_normalise_etag(obj.get("ETag")),
                 last_modified=_to_iso_utc(obj.get("LastModified")),
@@ -139,9 +136,7 @@ def _iter_prefix_regex_objects(
                 flow_id=flow_id,    
             )
 
-"""
-Catch 404, NoSuchKey, NotFound errors
-"""
+"""Yield a singleton NetCDF object from an exact-key flow definition."""
 def _iter_exact_key_object(s3_client: Any, bucket: str, flow: dict[str, Any]):
     key = flow["exact_key"]
     if not key.endswith(".nc"):
@@ -155,7 +150,7 @@ def _iter_exact_key_object(s3_client: Any, bucket: str, flow: dict[str, Any]):
             return
         raise
 
-    yield InventoryObject(
+    yield MasterLedger(
         key=key,
         etag=_normalise_etag(head.get("ETag")),
         last_modified=_to_iso_utc(head.get("LastModified")),
@@ -163,9 +158,7 @@ def _iter_exact_key_object(s3_client: Any, bucket: str, flow: dict[str, Any]):
         flow_id=flow["id"],
     )
 
-"""
-Scan over all specified buckets
-"""
+"""Scan all enabled flows and return object metadata keyed by source key."""
 def scan_inventory(kp: dict[str, Any], s3_client: Any) -> dict[str, dict[str, Any]]:
     bucket = kp["s3"]["bucket"]
     page_size = int(kp.get("execution", {}).get("list_page_size", 1000))
@@ -179,7 +172,7 @@ def scan_inventory(kp: dict[str, Any], s3_client: Any) -> dict[str, dict[str, An
         if mode =="prefix_regex":
             iterator= _iter_prefix_regex_objects(s3_client, bucket, flow, page_size)
         elif mode == "exact_key":
-            iterator= _iter_exact_key_object(s3_client, bucket, flow, page_size)
+            iterator= _iter_exact_key_object(s3_client, bucket, flow)
         else:
             raise ValueError(f"Unsupported flow mode: {mode}")
         
@@ -193,3 +186,77 @@ def scan_inventory(kp: dict[str, Any], s3_client: Any) -> dict[str, dict[str, An
 
     return objects_by_key
 
+"""Return the diff fingerprint tuple used for change detection."""
+def _fingerprint(record: dict[str, Any]) -> tuple[str, str, int]:
+    return (
+        str(record.get("etag", "")),
+        str(record.get("last_modified", "")),
+        int(record.get("size", 0)),
+    )
+
+"""
+Compute new, changed, deleted, and unchanged keys between ledger snapshots.
+"""
+def diff_inventory(
+    previous_objects: dict[str, dict[str, Any]],
+    current_objects: dict[str, dict[str, Any]],
+) -> dict[str, list[str]]:
+    prev_keys = set(previous_objects.keys())
+    curr_keys = set(current_objects.keys())
+
+    new_keys = sorted(curr_keys - prev_keys)
+    deleted_keys = sorted(prev_keys - curr_keys)
+
+    changed_keys: list[str] = []
+    unchanged_keys: list[str] = []
+
+    for key in sorted(curr_keys & prev_keys):
+        if _fingerprint(current_objects[key]) == _fingerprint(previous_objects[key]):
+            unchanged_keys.append(key)
+        else:
+            changed_keys.append(key)
+
+    return {
+        "new": new_keys,
+        "changed": changed_keys,
+        "deleted": deleted_keys,
+        "unchanged": unchanged_keys,
+    }
+
+"""Build the current inventory snapshot and diff it against the previous ledger."""
+def build_inventory_snapshot_and_diff(
+    kp: dict[str, Any],
+    access_key: str,
+    secret_key: str,
+) -> dict[str, Any]:
+    fs, s3_client = build_storage_clients(kp, access_key, secret_key)
+
+    previous_ledger = load_ledger(kp["output"]["ledger_path"])
+    previous_objects = previous_ledger.get("objects", {})
+
+    current_objects = scan_inventory(kp, s3_client)
+    diff = diff_inventory(previous_objects, current_objects)
+
+    next_ledger = {
+        "schema_version": LEDGER_SCHEMA_VERSION,
+        "updated_at": _utc_now_iso(),
+        "bucket": kp["s3"]["bucket"],
+        "objects": current_objects,
+    }
+
+    summary = {
+        "scanned": len(current_objects),
+        "new": len(diff["new"]),
+        "changed": len(diff["changed"]),
+        "deleted": len(diff["deleted"]),
+        "unchanged": len(diff["unchanged"]),
+    }
+
+    return {
+        "filesystem": fs,
+        "summary": summary,
+        "diff": diff,
+        "previous_ledger": previous_ledger,
+        "current_objects": current_objects,
+        "next_ledger": next_ledger,
+    }
