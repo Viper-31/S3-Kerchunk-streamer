@@ -1,0 +1,29 @@
+kerchunk_pipeline:
+  s3:
+    endpoint_url: "https://projects.pawsey.org.au"
+    bucket: "weather"
+    region_name: "us-east-1"
+    secret_scope: "pawsey0411"
+    access_key_secret_name: "access_key"
+    secret_key_secret_name: "secret_key"
+
+  source_flows:
+    - id: "ecmwf_daily_nc"
+      enabled: true
+      mode: "prefix_regex"
+      prefix: "weather/ecmwf_op_clean/"
+      key_regex: "^weather/ecmwf_op_clean/[0-9]{4}/[0-9]{2}/[0-9]{2}\\.nc$"
+
+    - id: "dpird_final_singleton"
+      enabled: true
+      mode: "exact_key"
+      exact_key: "weather/FINAL_DPIRD/DPIRD_final_stations.nc"
+
+  output:
+    staging_volume_path: "/Volumes/workspace/weather/kerchunk/acacia_refs"
+    ledger_path: "/Volumes/workspace/weather/kerchunk/acacia_refs/_state/inventory_ledger.json"
+    temp_path: "/Volumes/workspace/weather/kerchunk/acacia_refs/_tmp"
+
+  execution:
+    max_workers: "auto"
+    list_page_size: 1000
