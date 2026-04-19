@@ -11,3 +11,4 @@ __pycache__/
 temp*
 .databricks
 databricks.yml
+.databricks
