@@ -20,9 +20,9 @@ kerchunk_pipeline:
       exact_key: "weather/FINAL_DPIRD/DPIRD_final_stations.nc"
 
   output:
-    staging_volume_path: "$MYSCRATCH/Streamer/acacia_refs"
-    ledger_path: "$MYSCRATCH/Streamer/inventory_ledger.json"
-    temp_path: "$MYSCRATCH/Streamer/_tmp"
+    staging_volume_path: "/Volumes/workspace/weather/kerchunk/acacia_refs"
+    ledger_path: "/Volumes/workspace/weather/kerchunk/acacia_refs/_state/inventory_ledger.json"
+    temp_path: "/Volumes/workspace/weather/kerchunk/acacia_refs/_tmp"
 
   execution:
     max_workers: "auto"
