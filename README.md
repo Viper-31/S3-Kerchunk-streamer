@@ -1,6 +1,6 @@
 # S3 Kerchunk Streamer
 
-A scheduled Setonix batch pipeline that scans NetCDF objects hosted on Pawsey's Acacia (S3-compatible object storage), and generates [Kerchunk](https://fsspec.github.io/kerchunk/) Parquet references. These references allow downstream visualization and web applications to stream exact byte ranges (via [VirtualiZarr](https://virtualizarr.readthedocs.io/)) instead of downloading massive 2-5 GB source files in their entirety.
+A scheduled Databricks batch pipeline that scans NetCDF objects hosted on Pawsey's Acacia (S3-compatible object storage), and generates [Kerchunk](https://fsspec.github.io/kerchunk/) Parquet references. These references allow downstream visualization and web applications to stream exact byte ranges (via [VirtualiZarr](https://virtualizarr.readthedocs.io/)) instead of downloading massive 2-5 GB source files in their entirety.
 
 ## Overview
 
@@ -9,7 +9,7 @@ This pipeline solves the problem of efficiently accessing large historical weath
 **Key Capabilities:**
 - **Cloud-Optimized Access**: Converts traditional NetCDF S3 objects into cloud-optimized formats virtually using Kerchunk.
 - **Incremental Processing**: Tracks `ETag` and `LastModified` timestamps in an inventory ledger to only process new or changed files, saving compute.
-- **Setonix/Slurm Integration**: Runs as a scheduled Slurm batch job, pushing the derived reference Parquet files directly into Setonix's high-performance `$MYSCRATCH` storage. The pipeline automatically creates necessary output directories if they do not exist.
+- **Databricks Integration**: Runs as a Databricks job, pushing the derived reference Parquet files directly into Databricks Volumes. The pipeline automatically creates necessary output directories if they do not exist.
 - **Visualization Ready**: Consumer apps can open the metadata via `ReferenceFileSystem` and `xarray` to pull precise byte slices for interactive streaming.
 
 ## Project Structure
@@ -19,7 +19,7 @@ This pipeline solves the problem of efficiently accessing large historical weath
 
 ## Downstream Usage
 
-Once the pipeline generates the Parquet references in the Setonix scratch space (e.g., `$MYSCRATCH/Streamer/acacia_refs`), visualization jobs or web APIs can consume them dynamically:
+Once the pipeline generates the Parquet references in the Databricks Volume (`/Volumes/workspace/weather/kerchunk/acacia_refs`), visualisation jobs or web APIs can consume them dynamically:
 
 ```python
 import xarray as xr

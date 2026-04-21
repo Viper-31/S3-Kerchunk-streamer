@@ -11,18 +11,18 @@ kerchunk_pipeline:
     - id: "ecmwf_daily_nc"
       enabled: true
       mode: "prefix_regex"
-      prefix: "weather/ecmwf_op_clean/"
-      key_regex: "^weather/ecmwf_op_clean/[0-9]{4}/[0-9]{2}/[0-9]{2}\\.nc$"
+      prefix: "ecmwf_op_clean/"
+      key_regex: "^ecmwf_op_clean/[0-9]{4}/[0-9]{2}/[0-9]{2}\\.nc$"
 
     - id: "dpird_final_singleton"
       enabled: true
       mode: "exact_key"
-      exact_key: "weather/FINAL_DPIRD/DPIRD_final_stations.nc"
+      exact_key: "FINAL_DPIRD/DPIRD_final_stations.nc"
 
   output:
-    staging_volume_path: "$MYSCRATCH/Streamer/acacia_refs"
-    ledger_path: "$MYSCRATCH/Streamer/inventory_ledger.json"
-    temp_path: "$MYSCRATCH/Streamer/_tmp"
+    staging_volume_path: "/Volumes/workspace/weather/kerchunk/acacia_refs"
+    ledger_path: "/Volumes/workspace/weather/kerchunk/acacia_refs/_state/inventory_ledger.json"
+    temp_path: "/Volumes/workspace/weather/kerchunk/acacia_refs/_tmp"
 
   execution:
     max_workers: "auto"
