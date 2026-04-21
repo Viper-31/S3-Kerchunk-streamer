@@ -86,6 +86,9 @@ def load_ledger(ledger_path: str) -> dict[str,Any]:
         }
     with p.open("r", encoding= "utf-8") as fh:
         payload= json.load(fh)
+        
+        if not isinstance(payload,dict):
+            raise ValueError("Ledger file must contain a JSON object at the root") 
     
     if payload.get("schema_version") != LEDGER_SCHEMA_VERSION:
         raise ValueError(
