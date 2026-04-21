@@ -1,7 +1,9 @@
-"""Write Parquet references. One Parquet per S3 object"""
+"""Generate one Kerchunk parquet reference per source object."""
 from __future__ import annotations
 
-import json, os, shutil
+import json
+import os
+import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, UTC
 from pathlib import Path
@@ -12,24 +14,27 @@ from obstore.store import S3Store
 from obspec_utils.registry import ObjectStoreRegistry
 from virtualizarr.parsers import HDFParser, NetCDF3Parser
 
+"""Return current UTC timestamp in ISO format."""
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
+"""Resolve worker count from config, defaulting to a conservative CPU-based value."""
 def _resolve_workers(raw: Any) -> int:
     if raw in (None, "auto"):
         return max(1, min(8, (os.cpu_count() or 4)))
     return max(1, int(raw))
 
+"""Return sorted unique keys that need reference generation."""
 def _keys_to_generate(diff: dict[str, list[str]]) -> list[str]:
-    return sorted(set(diff.get("new",[]) + diff.get("changed", [])))
+    return sorted(set(diff.get("new", []) + diff.get("changed", [])))
 
-# Stable, deterministic one-to-one mapping from source object to parquet ref directory.
-def reference_relpath_for_key(source_key: str)-> str:
+
+"""Map a source key to a stable parquet reference output path."""
+def reference_relpath_for_key(source_key: str) -> str:
     return f"refs/{source_key}.parquet"
 
-"""
-Write to Masterledger?
-"""
+
+"""Atomically write a JSON payload by using a temp file and replace."""
 def _write_json_atomic(path: str, payload: dict[str, Any]) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -38,21 +43,20 @@ def _write_json_atomic(path: str, payload: dict[str, Any]) -> None:
         json.dump(payload, fh, indent=2, sort_keys=True)
     os.replace(tmp, target)
 
-"""Do not save to MasterLedger if error occurs"""
 def save_ledger_after_success(
     ledger_path: str,
     next_ledger: dict[str, Any],
     generation_summary: dict[str, Any],
 ) -> None:
+    # Persist the next ledger only when reference generation has no failures.
     if generation_summary.get("failed", 0) > 0:
         raise RuntimeError(
             "Ref generation had failures; ledger update is blocked to prevent drift."
         )
     _write_json_atomic(ledger_path, next_ledger)
 
-"""
-Build individual registry entry for MasterLedger
-"""
+
+"""Build an ObjectStore registry for authenticated reads from the configured bucket."""
 def _build_registry(kp: dict[str, Any], access_key: str, secret_key: str) -> ObjectStoreRegistry:
     s3_cfg = kp["s3"]
     bucket = s3_cfg["bucket"]
@@ -65,17 +69,12 @@ def _build_registry(kp: dict[str, Any], access_key: str, secret_key: str) -> Obj
         secret_access_key=secret_key,
         virtual_hosted_style_request=False,
     )
-    # Register bucket root so urls like s3://weather/path/file.nc resolve correctly.
+
     return ObjectStoreRegistry({f"s3://{bucket}": store})
 
-"""
-Input: Registry from MasterLedger
-Output: Parquet file with metadata and chunking format of NetCDF
 
-Kerchunk ref size is 0.002% - 0.02% if source bytes
-Downstream visualisation/analytics can read Parquet references for subset queries.
-"""
-def generate_one_reference(
+"""Generate a parquet reference for one source object with atomic output replace."""
+def generate_reference_for_object(
     *,
     key: str,
     bucket: str,
@@ -89,8 +88,8 @@ def generate_one_reference(
     source_url = f"s3://{bucket}/{key}"
     flow_id = current_objects.get(key, {}).get("flow_id", "unknown")
 
-    rel_ref= reference_relpath_for_key(key)
-    final_ref_path= Path(staging_volume_path) / rel_ref
+    rel_ref = reference_relpath_for_key(key)
+    final_ref_path = Path(staging_volume_path) / rel_ref
     tmp_ref_path = Path(temp_path) / f"{key.replace('/', '__')}.parquet.tmp"
 
     final_ref_path.parent.mkdir(parents=True, exist_ok=True)
@@ -105,27 +104,28 @@ def generate_one_reference(
     parser_used = None
     last_error = None
 
-    # Building using virtualizarr
+    # Try HDF first (common for NetCDF4), then NetCDF3 as fallback.
     for parser in (HDFParser(), NetCDF3Parser()):
         try:
             with vz.open_virtual_dataset(
-                url= source_url,
-                registry= registry,
-                parser= parser,
+                url=source_url,
+                registry=registry,
+                parser=parser,
                 loadable_variables=[],
-            ) as vds: #Kerchunking
+            ) as vds:
+                # Kerchunking
                 vds.vz.to_kerchunk(
-                    filepath= tmp_ref_path,
-                    format= "parquet",
-                    record_size= record_size,
-                    categorical_threshold= categorical_threshold,
+                    filepath=tmp_ref_path,
+                    format="parquet",
+                    record_size=record_size,
+                    categorical_threshold=categorical_threshold,
                 )
-            parser_used= parser.__class__.__name__
-            last_error= None
+            parser_used = parser.__class__.__name__
+            last_error = None
             break
         except Exception as exc:
-            last_error= exc
-    
+            last_error = exc
+
     if last_error is not None:
         return {
             "key": key,
@@ -133,14 +133,15 @@ def generate_one_reference(
             "status": "failed",
             "error": f"{type(last_error).__name__}: {last_error}",
         }
-    #Remove files in _tmp if no errors and final_ref_path found
+
     if final_ref_path.exists():
         if final_ref_path.is_dir():
             shutil.rmtree(final_ref_path, ignore_errors=True)
         else:
-            final_ref_path.unlink(missing_ok=True) 
-    
+            final_ref_path.unlink(missing_ok=True)
+
     os.replace(tmp_ref_path, final_ref_path)
+
     return {
         "key": key,
         "flow_id": flow_id,
@@ -149,9 +150,8 @@ def generate_one_reference(
         "reference_path": str(final_ref_path),
     }
 
-"""
-S3 object removed -> remove corresponding reference
-"""
+
+"""Remove references for objects that disappeared from source inventory."""
 def remove_deleted_references(
     *,
     staging_volume_path: str,
@@ -173,15 +173,14 @@ def remove_deleted_references(
 
     return {"removed": removed, "missing": missing}
 
-"""
-Multi-threaded execution to build references
-"""
-def parallelise_generate_references(
+
+"""Generate references concurrently and return summary, results, and failures."""
+def generate_references_in_parallel(
     *,
     kp: dict[str, Any],
     access_key: str,
     secret_key: str,
-    ledger_diff: dict[str, list[str]],
+    inventory_diff: dict[str, list[str]],
     current_objects: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     bucket = kp["s3"]["bucket"]
@@ -195,8 +194,8 @@ def parallelise_generate_references(
     record_size = int(exec_cfg.get("parquet_record_size", 100000))
     categorical_threshold = int(exec_cfg.get("parquet_categorical_threshold", 10))
 
-    keys = _keys_to_generate(ledger_diff)
-    deleted_keys = sorted(ledger_diff.get("deleted", []))
+    keys = _keys_to_generate(inventory_diff)
+    deleted_keys = sorted(inventory_diff.get("deleted", []))
 
     if not keys:
         delete_summary = remove_deleted_references(
@@ -223,7 +222,7 @@ def parallelise_generate_references(
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = [
             pool.submit(
-                generate_one_reference,
+                generate_reference_for_object,
                 key=key,
                 bucket=bucket,
                 registry=registry,
