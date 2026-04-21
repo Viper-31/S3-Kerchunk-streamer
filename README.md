@@ -9,7 +9,7 @@ This pipeline solves the problem of efficiently accessing large historical weath
 **Key Capabilities:**
 - **Cloud-Optimized Access**: Converts traditional NetCDF S3 objects into cloud-optimized formats virtually using Kerchunk.
 - **Incremental Processing**: Tracks `ETag` and `LastModified` timestamps in an inventory ledger to only process new or changed files, saving compute.
-- **Databricks Integration**: Runs as a Databricks jobs, pushing the derived reference Parquet files directly into Databrick's Volumes. The pipeline automatically creates necessary output directories if they do not exist.
+- **Databricks Integration**: Runs as a Databricks job, pushing the derived reference Parquet files directly into Databricks Volumes. The pipeline automatically creates necessary output directories if they do not exist.
 - **Visualization Ready**: Consumer apps can open the metadata via `ReferenceFileSystem` and `xarray` to pull precise byte slices for interactive streaming.
 
 ## Project Structure
