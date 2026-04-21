@@ -24,7 +24,7 @@ def _keys_to_generate(diff: dict[str, list[str]]) -> list[str]:
     return sorted(set(diff.get("new",[]) + diff.get("changed", [])))
 
 # Stable, deterministic one-to-one mapping from source object to parquet ref directory.
-def refernce_relpath_for_key(source_key: str)-> str:
+def reference_relpath_for_key(source_key: str)-> str:
     return f"refs/{source_key}.parquet"
 
 """
@@ -75,7 +75,7 @@ Output: Parquet file with metadata and chunking format of NetCDF
 Kerchunk ref size is 0.002% - 0.02% if source bytes
 Downstream visualisation/analytics can read Parquet references for subset queries.
 """
-def generate_one_references(
+def generate_one_reference(
     *,
     key: str,
     bucket: str,
@@ -89,7 +89,7 @@ def generate_one_references(
     source_url = f"s3://{bucket}/{key}"
     flow_id = current_objects.get(key, {}).get("flow_id", "unknown")
 
-    rel_ref= refernce_relpath_for_key(key)
+    rel_ref= reference_relpath_for_key(key)
     final_ref_path= Path(staging_volume_path) / rel_ref
     tmp_ref_path = Path(temp_path) / f"{key.replace('/', '__')}.parquet.tmp"
 
@@ -176,12 +176,12 @@ def remove_deleted_references(
 """
 Multi-threaded execution to build references
 """
-def generate_phase4_references(
+def parallelise_generate_references(
     *,
     kp: dict[str, Any],
     access_key: str,
     secret_key: str,
-    phase3_diff: dict[str, list[str]],
+    ledger_diff: dict[str, list[str]],
     current_objects: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     bucket = kp["s3"]["bucket"]
@@ -195,8 +195,8 @@ def generate_phase4_references(
     record_size = int(exec_cfg.get("parquet_record_size", 100000))
     categorical_threshold = int(exec_cfg.get("parquet_categorical_threshold", 10))
 
-    keys = _keys_to_generate(phase3_diff)
-    deleted_keys = sorted(phase3_diff.get("deleted", []))
+    keys = _keys_to_generate(ledger_diff)
+    deleted_keys = sorted(ledger_diff.get("deleted", []))
 
     if not keys:
         delete_summary = remove_deleted_references(
@@ -223,7 +223,7 @@ def generate_phase4_references(
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = [
             pool.submit(
-                _generate_one_reference,
+                generate_one_reference,
                 key=key,
                 bucket=bucket,
                 registry=registry,
