@@ -90,7 +90,7 @@ def generate_reference_for_object(
 
     rel_ref = reference_relpath_for_key(key)
     final_ref_path = Path(staging_volume_path) / rel_ref
-    tmp_ref_path = Path(temp_path) / f"{key.replace('/', '__')}.parquet.tmp"
+    tmp_ref_path = Path(temp_path) / f"{key.replace('/', '__')}.tmp.parquet."
 
     final_ref_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
