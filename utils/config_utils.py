@@ -77,7 +77,7 @@ def validate_pipeline_schema(kp: dict[str, Any]) -> None:
         raise ValueError(f"Missing kerchunk_pipeline sections: {missing_top}")
 
     s3 = kp["s3"]
-    for k in ["endpoint_url", "bucket", "secret_scope", "access_key_secret_name", "secret_key_secret_name"]:
+    for k in ["endpoint_url", "bucket", "secret_scope"]:
         if not s3.get(k):
             raise ValueError(f"Missing s3.{k}")
 
