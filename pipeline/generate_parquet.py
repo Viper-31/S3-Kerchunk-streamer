@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
@@ -13,6 +12,9 @@ import virtualizarr as vz
 from obstore.store import S3Store
 from obspec_utils.registry import ObjectStoreRegistry
 from virtualizarr.parsers import HDFParser, NetCDF3Parser
+
+import dask
+from dask.distributed import Client
 
 """Return current UTC timestamp in ISO format."""
 def _utc_now_iso() -> str:
@@ -175,7 +177,7 @@ def remove_deleted_references(
 
 
 """Generate references concurrently and return summary, results, and failures."""
-def generate_references_in_parallel(
+def concurrent_dask_ref_generation(
     *,
     kp: dict[str, Any],
     access_key: str,
@@ -190,7 +192,6 @@ def generate_references_in_parallel(
     staging_volume_path = out_cfg["staging_volume_path"]
     temp_path = out_cfg["temp_path"]
 
-    max_workers = _resolve_workers(exec_cfg.get("max_workers", "auto"))
     record_size = int(exec_cfg.get("parquet_record_size", 100000))
     categorical_threshold = int(exec_cfg.get("parquet_categorical_threshold", 10))
 
@@ -219,27 +220,23 @@ def generate_references_in_parallel(
     results: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
 
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = [
-            pool.submit(
-                generate_reference_for_object,
-                key=key,
-                bucket=bucket,
-                registry=registry,
-                staging_volume_path=staging_volume_path,
-                temp_path=temp_path,
-                current_objects=current_objects,
-                record_size=record_size,
-                categorical_threshold=categorical_threshold,
-            )
-            for key in keys
-        ]
+    client= Client(threads_per_worker=1)
+    tasks= []
+    for key in keys:
+        task= dask.delayed(generate_reference_for_object) (
+            key=key,
+            bucket=bucket,
+            registry=registry,
+            staging_volume_path=staging_volume_path,
+            temp_path=temp_path,
+            current_objects=current_objects,
+            record_size=record_size,
+            categorical_threshold=categorical_threshold,
+        )
+        tasks.append(task)
 
-        for fut in as_completed(futures):
-            item = fut.result()
-            results.append(item)
-            if item["status"] == "failed":
-                failures.append(item)
+    results= dask.compute(*tasks)
+    failures= [r for r in results if r["status"]=="failed"]        
 
     delete_summary = remove_deleted_references(
         staging_volume_path=staging_volume_path,
