@@ -20,6 +20,7 @@ REQUIRED_EXACT = {
 }
 
 REQUIRED_MODULES = [
+    "dask"
     "fsspec",
     "fastparquet",
     "s3fs",
