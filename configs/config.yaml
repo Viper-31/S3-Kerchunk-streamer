@@ -4,9 +4,7 @@ kerchunk_pipeline:
     bucket: "weather"
     region_name: "us-east-1"
     secret_scope: "pawsey0411"
-    access_key_secret_name: "access_key"
-    secret_key_secret_name: "secret_key"
-
+    
   source_flows:
     - id: "ecmwf_daily_nc"
       enabled: true
