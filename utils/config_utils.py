@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+import os
 import sys
+from pathlib import Path
 from importlib import import_module
 from importlib.metadata import version, PackageNotFoundError
 from pathlib import Path
@@ -29,7 +31,7 @@ REQUIRED_MODULES = [
 
 
 def check_runtime_readiness() -> dict[str, str]:
-    errors: list[str] = []
+    errors = []
     report: dict[str, str] = {}
 
     if sys.version_info < (3, 12):
@@ -129,9 +131,30 @@ def load_pipeline_config(config_path: str | Path) -> dict[str, Any]:
     validate_pipeline_schema(kp)
     return kp
 
+def find_env_file(filename= "s3_connect.txt",env_dir=".env"):
+    """Search upwards from current file to find the .env/filename"""
+    curr_path= Path(__file__).resolve().parent
 
-def resolve_secrets(kp: dict[str, Any], dbutils: Any) -> tuple[str, str]:
-    s3 = kp["s3"]
-    access_key = dbutils.secrets.get(scope=s3["secret_scope"], key=s3["access_key_secret_name"])
-    secret_key = dbutils.secrets.get(scope=s3["secret_scope"], key=s3["secret_key_secret_name"])
+    for parent in [curr_path, *curr_path.parents]:
+        env_path = parent / env_dir / filename
+        if env_path.exists():
+            return env_path
+    raise FileNotFoundError(f"Could not find {env_dir}/{filename} in any parent folder")
+
+def resolve_secrets(kp:dict[str, Any]) -> tuple[str, str]:
+    secret_path= find_env_file()
+
+    secrets={}
+    with open(secret_path,"r") as f:
+        for line in f:
+            if "=" in line:
+                key, value= line.strip.split("=",1)
+                secrets[key]= value
+    
+    access_key= secrets.get("ACCESS_KEY")
+    secret_key= secrets.get("SECRET_KEY")
+
+    if not access_key or not secret_key:
+        raise ValueError(f"Secrets file at {secret_path} is missing required keys.")
+        
     return access_key, secret_key
