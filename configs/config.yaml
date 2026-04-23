@@ -20,10 +20,10 @@ kerchunk_pipeline:
       exact_key: "FINAL_DPIRD/DPIRD_final_stations.nc"
 
   output:
-    staging_volume_path: "/Volumes/workspace/weather/kerchunk/acacia_refs"
-    ledger_path: "/Volumes/workspace/weather/kerchunk/acacia_refs/_state/inventory_ledger.json"
-    temp_path: "/Volumes/workspace/weather/kerchunk/acacia_refs/_tmp"
+    staging_volume_path: "acacia_refs_staging"
+    ledger_path: "acacia_refs_staging/_state/inventory_ledger.json"
+    temp_path: "acacia_refs_temp"
 
   execution:
-    max_workers: "auto"
+    max_workers: 16
     list_page_size: 1000
