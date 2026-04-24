@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import virtualizarr as vz
-from obstore.store import S3Store
+from obstore.store import from_url
 from obspec_utils.registry import ObjectStoreRegistry
 from virtualizarr.parsers import HDFParser, NetCDF3Parser
 
@@ -61,19 +61,19 @@ def save_ledger_after_success(
 """Build an ObjectStore registry for authenticated reads from the configured bucket."""
 def _build_registry(kp: dict[str, Any], access_key: str, secret_key: str) -> ObjectStoreRegistry:
     s3_cfg = kp["s3"]
-    bucket = s3_cfg["bucket"]
+    bucket_name = s3_cfg["bucket"]
+    bucket_url = f"s3://{bucket_name}"
 
-    store = S3Store(
-        bucket=bucket,
+    store = from_url(
+        bucket_url,
         endpoint=s3_cfg["endpoint_url"],
         region=s3_cfg.get("region_name", "us-east-1"),
         access_key_id=access_key,
         secret_access_key=secret_key,
-        virtual_hosted_style_request=False,
+        virtual_hosted_style_request=False, 
     )
 
-    return ObjectStoreRegistry({f"s3://{bucket}": store})
-
+    return ObjectStoreRegistry({bucket_url: store})
 
 """Generate a parquet reference for one source object with atomic output replace."""
 def generate_reference_for_object(
@@ -109,19 +109,19 @@ def generate_reference_for_object(
     # Try HDF first (common for NetCDF4), then NetCDF3 as fallback.
     for parser in (HDFParser(), NetCDF3Parser()):
         try:
-            with vz.open_virtual_dataset(
+            vds= vz.open_virtual_dataset(
                 url=source_url,
                 registry=registry,
                 parser=parser,
                 loadable_variables=[],
-            ) as vds:
-                # Kerchunking
-                vds.vz.to_kerchunk(
-                    filepath=tmp_ref_path,
-                    format="parquet",
-                    record_size=record_size,
-                    categorical_threshold=categorical_threshold,
-                )
+            )
+            # Kerchunking
+            vds.vz.to_kerchunk(
+                filepath=tmp_ref_path,
+                format="parquet",
+                record_size=record_size,
+                categorical_threshold=categorical_threshold,
+            )
             parser_used = parser.__class__.__name__
             last_error = None
             break
