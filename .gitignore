@@ -1,5 +1,6 @@
 *dataset*
 .env
+.tmp
 *venv*
 *.vscode
 *.nc
