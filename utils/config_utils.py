@@ -15,12 +15,12 @@ import yaml
 REQUIRED_EXACT = {
     "fsspec": "2026.3.0",
     "s3fs": "2026.3.0",
+    "dask": "2026.3.0",
     "kerchunk": "0.2.10",
-    "virtualizarr": "2.6.0",
 }
 
 REQUIRED_MODULES = [
-    "dask",
+    "distributed",
     "fsspec",
     "fastparquet",
     "s3fs",
@@ -36,7 +36,7 @@ def check_runtime_readiness() -> dict[str, str]:
     report: dict[str, str] = {}
 
     if sys.version_info < (3, 12):
-        errors.append("Python 3.12+ required for virtualizarr==2.6.0.")
+        errors.append("Python 3.12+ required for virtualizarr=")
 
     for pkg, expected in REQUIRED_EXACT.items():
         try:
