@@ -25,6 +25,7 @@ google-crc32c==1.8.0
 h5netcdf==1.8.1
 h5py==3.16.0
 idna==3.13
+iniconfig==2.3.0
 ipykernel==7.2.0
 ipython==9.12.0
 ipython_pygments_lexers==1.1.1
@@ -51,11 +52,13 @@ parso==0.8.6
 partd==1.4.2
 pathlib_abc==0.5.2
 platformdirs==4.9.6
+pluggy==1.6.0
 prompt_toolkit==3.0.52
 propcache==0.4.1
 psutil==7.2.2
 pure_eval==0.2.3
 Pygments==2.20.0
+pytest==9.0.3
 python-dateutil==2.9.0.post0
 pytz==2026.1.post1
 PyYAML==6.0.3
