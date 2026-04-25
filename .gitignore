@@ -1,6 +1,4 @@
 *dataset*
-.env
-.tmp
 *venv*
 *.vscode
 *.nc
@@ -12,5 +10,5 @@ __pycache__/
 .env
 temp*
 .databricks
-*databricks.yml
+databricks.yml
 .databricks
