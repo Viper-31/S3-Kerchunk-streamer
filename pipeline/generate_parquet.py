@@ -9,9 +9,11 @@ from pathlib import Path
 from typing import Any
 
 import virtualizarr as vz
+import s3fs
+import xarray as xr
 from obstore.store import from_url
 from obspec_utils.registry import ObjectStoreRegistry
-from virtualizarr.parsers import HDFParser, NetCDF3Parser
+from virtualizarr.parsers import HDFParser
 
 import dask
 from dask.distributed import Client
@@ -80,6 +82,9 @@ def generate_reference_for_object(
     *,
     key: str,
     bucket: str,
+    access_key: str,
+    secret_key: str,
+    s3_config: dict[str, Any],
     registry: ObjectStoreRegistry,
     staging_volume_path: str,
     temp_path: str,
@@ -92,7 +97,7 @@ def generate_reference_for_object(
 
     rel_ref = reference_relpath_for_key(key)
     final_ref_path = Path(staging_volume_path) / rel_ref
-    tmp_ref_path = Path(temp_path) / f"{key.replace('/', '__')}.tmp.parquet."
+    tmp_ref_path = Path(temp_path) / f"{key.replace('/', '__')}.tmp.parquet"
 
     final_ref_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,27 +111,50 @@ def generate_reference_for_object(
     parser_used = None
     last_error = None
 
-    # Try HDF first (common for NetCDF4), then NetCDF3 as fallback.
-    for parser in (HDFParser(), NetCDF3Parser()):
-        try:
-            vds= vz.open_virtual_dataset(
-                url=source_url,
-                registry=registry,
-                parser=parser,
-                loadable_variables=[],
-            )
-            # Kerchunking
-            vds.vz.to_kerchunk(
-                filepath=tmp_ref_path,
-                format="parquet",
-                record_size=record_size,
-                categorical_threshold=categorical_threshold,
-            )
-            parser_used = parser.__class__.__name__
-            last_error = None
-            break
-        except Exception as exc:
-            last_error = exc
+    try:
+        # Initialize S3FS for metadata string inspection
+        fs = s3fs.S3FileSystem(
+            key=access_key,
+            secret=secret_key,
+            client_kwargs={"endpoint_url": s3_config["endpoint_url"]},
+            config_kwargs={"signature_version": "s3v4", "s3": {"addressing_style": "path"}}
+        )
+
+        # Inspect dtypes
+        with fs.open(f"{bucket}/{key}", "rb") as f:
+            ds_real = xr.open_dataset(f, engine="h5netcdf")
+            string_vars = [v for v in ds_real.variables if ds_real[v].dtype.kind in ("S", "U", "O")]
+
+        # Use appropriate parser, drop problematic strings from the parser
+        parser = HDFParser(drop_variables=string_vars) if string_vars else HDFParser()
+        
+        vds = vz.open_virtual_dataset(
+            url=source_url,
+            registry=registry,
+            parser=parser,
+            loadable_variables=[],
+        )
+
+        if string_vars:
+            with fs.open(f"{bucket}/{key}", "rb") as f:
+                ds_real = xr.open_dataset(f, engine="h5netcdf")
+                for var in string_vars:
+                    if var in ds_real:
+                        vds = vds.assign_coords({var: ds_real[var].load()})
+
+        # Export to Kerchunk Parquet
+        vds.vz.to_kerchunk(
+            filepath=str(tmp_ref_path),
+            format="parquet",
+            record_size=record_size,
+            categorical_threshold=categorical_threshold,
+        )
+        
+        parser_used = f"{parser.__class__.__name__} (strings_handled={len(string_vars)})"
+        last_error = None
+
+    except Exception as exc:
+        last_error = exc
 
     if last_error is not None:
         return {
@@ -143,7 +171,7 @@ def generate_reference_for_object(
             final_ref_path.unlink(missing_ok=True)
 
     os.replace(tmp_ref_path, final_ref_path)
-
+    
     return {
         "key": key,
         "flow_id": flow_id,
@@ -226,6 +254,9 @@ def concurrent_dask_ref_generation(
         task= dask.delayed(generate_reference_for_object) (
             key=key,
             bucket=bucket,
+            access_key=access_key,
+            secret_key=secret_key,
+            s3_config=kp["s3"],
             registry=registry,
             staging_volume_path=staging_volume_path,
             temp_path=temp_path,
