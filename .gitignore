@@ -12,5 +12,5 @@ __pycache__/
 .env
 temp*
 .databricks
-databricks.yml
+*databricks.yml
 .databricks
