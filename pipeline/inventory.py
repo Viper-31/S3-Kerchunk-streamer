@@ -12,7 +12,7 @@ import s3fs
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-LEDGER_SCHEMA_VERSION = 1
+LEDGER_SCHEMA_VERSION= 1
 
 """Ledger row model for one source object used in incremental diffing."""
 @dataclass(frozen=True)
@@ -24,11 +24,10 @@ class MasterLedger:
     flow_id: str
 
     # Convert the dataclass into the stored ledger row format.
-    def to_ledger_record(self) -> dict[str, Any]:
+    def to_ledger_record(self) -> dict[str,Any]:
         return asdict(self)
-
-
-"""Return current UTC timestamp in ISO format."""
+    
+# Return current UTC timestamp in ISO format for ledger updated_at.
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -37,11 +36,12 @@ def _normalise_etag(raw: str | None) -> str:
         return ""
     return raw.strip ('"')
 
-"""Normalize metadata timestamps into UTC ISO strings for stable comparisons."""
-def _to_iso_utc(value: Any) -> str:
-    if isinstance(value, datetime):
+# Normalize S3 metadata timestamps into UTC ISO strings before diff comparison.
+def _to_iso_utc (value:Any) -> str: 
+    # S3 metadata may be tz-aware datetimes while tests may pass strings.
+    if isinstance(value,datetime):
         if value.tzinfo is None:
-            value = value.replace(tzinfo=UTC)
+            value= value.replace(tzinfo=UTC)
         return value.astimezone(UTC).isoformat()
     return str(value)
 
@@ -75,19 +75,20 @@ def build_storage_clients(kp: dict[str, Any], access_key: str, secret_key: str):
 
     return fs, s3_client
 
-"""Load ledger from disk, or initialize an empty structure if it is missing."""
-def load_ledger(ledger_path: str) -> dict[str, Any]:
-    p = Path(ledger_path)
+"""Load existing ledger from disk, or initialize an empty ledger structure."""
+def load_ledger(ledger_path: str) -> dict[str,Any]:
+    p= Path(ledger_path)
     if not p.exists():
         return {
             "schema_version": LEDGER_SCHEMA_VERSION,
             "updated_at": None,
             "objects": {},
         }
-    with p.open("r", encoding="utf-8") as fh:
-        payload = json.load(fh)
-        if not isinstance(payload, dict):
-            raise ValueError("Ledger file must contain a JSON object at the root")
+    with p.open("r", encoding= "utf-8") as fh:
+        payload= json.load(fh)
+        
+        if not isinstance(payload,dict):
+            raise ValueError("Ledger file must contain a JSON object at the root") 
     
     if payload.get("schema_version") != LEDGER_SCHEMA_VERSION:
         raise ValueError(
@@ -95,8 +96,8 @@ def load_ledger(ledger_path: str) -> dict[str, Any]:
             f"expected {LEDGER_SCHEMA_VERSION}"
         )
     
-    objects = payload.get("objects", {})
-    if not isinstance(objects, dict):
+    objects= payload.get("objects",{})
+    if not isinstance(objects,dict):
         raise ValueError("Ledger objects must be a dict keyed by a source key")
     
     return payload
@@ -110,21 +111,21 @@ def _iter_prefix_regex_objects(
         flow: dict[str, Any],
         page_size: int,
 ):
-    flow_id = flow["id"]
-    prefix = flow["prefix"]
-    pattern = re.compile(flow["key_regex"])
+    flow_id= flow["id"]
+    prefix= flow["prefix"]
+    pattern= re.compile(flow["key_regex"])
 
-    paginator = s3_client.get_paginator("list_objects_v2")
-    pages = paginator.paginate(
-        Bucket=bucket,
-        Prefix=prefix,
-        PaginationConfig={"PageSize": page_size},
+    paginator= s3_client.get_paginator("list_objects_v2")
+    pages= paginator.paginate(
+        Bucket= bucket,
+        Prefix= prefix,
+        PaginationConfig= {"PageSize": page_size},
     )
 
-    # Only include NetCDF source objects that satisfy this flow selector.
+    #Only care about NetCDF file objects
     for page in pages:
-        for obj in page.get("Contents", []):
-            key = obj["Key"]
+        for obj in page.get("Contents",[]):
+            key= obj["Key"]
             if not key.endswith(".nc"):
                 continue
             if not pattern.match(key):
@@ -135,7 +136,7 @@ def _iter_prefix_regex_objects(
                 etag=_normalise_etag(obj.get("ETag")),
                 last_modified=_to_iso_utc(obj.get("LastModified")),
                 size=int(obj.get("Size", 0)),
-                flow_id=flow_id,
+                flow_id=flow_id,    
             )
 
 """Yield a singleton NetCDF object from an exact-key flow definition."""
@@ -170,21 +171,21 @@ def scan_inventory(kp: dict[str, Any], s3_client: Any) -> dict[str, dict[str, An
         if not flow.get("enabled", True):
             continue
 
-        mode = flow["mode"]
-        if mode == "prefix_regex":
-            iterator = _iter_prefix_regex_objects(s3_client, bucket, flow, page_size)
+        mode= flow["mode"]
+        if mode =="prefix_regex":
+            iterator= _iter_prefix_regex_objects(s3_client, bucket, flow, page_size)
         elif mode == "exact_key":
-            iterator = _iter_exact_key_object(s3_client, bucket, flow)
+            iterator= _iter_exact_key_object(s3_client, bucket, flow)
         else:
             raise ValueError(f"Unsupported flow mode: {mode}")
-
+        
         for obj in iterator:
             if obj.key in objects_by_key:
                 raise ValueError(
                     f"Duplicate source key detected across flows: {obj.key}. "
                     "Flow selectors must be mutually exclusive."
                 )
-            objects_by_key[obj.key] = obj.to_ledger_record()
+            objects_by_key[obj.key]= obj.to_ledger_record()
 
     return objects_by_key
 
