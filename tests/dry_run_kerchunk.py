@@ -1,13 +1,21 @@
+# Run with: python -m pytest -s tests/dry_run_kerchunk.py
+
 import time
 import pytest
 from pathlib import Path
 import shutil
 from utils.config_utils import load_pipeline_config, resolve_secrets
 from pipeline.generate_parquet import generate_reference_for_object, _build_registry
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message="Numcodecs codecs are not in the Zarr version 3 specification*",
+    category=UserWarning
+)
 
 def test_dry_run_performance():
     """Benchmark Kerchunk generation for specific DPIRD and ECMWF keys."""
-    # Setup paths and config
     repo_root = Path(__file__).parent.parent
     kp = load_pipeline_config(repo_root / "configs/config.yaml")
     ACCESS_KEY, SECRET_KEY = resolve_secrets(kp)
