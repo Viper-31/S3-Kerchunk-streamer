@@ -18,6 +18,7 @@ from virtualizarr.parsers import HDFParser
 
 import dask
 from dask.distributed import Client
+from pipeline.contracts import parse_inventory_diff, parse_object_record
 
 """Return current UTC timestamp in ISO format."""
 def _utc_now_iso() -> str:
@@ -141,6 +142,15 @@ def commit_reference(tmp_ref_path: Path, final_ref_path: Path) -> None:
             final_ref_path.unlink(missing_ok=True)
 
     os.replace(tmp_ref_path, final_ref_path)
+
+"""Validate inventory diifs"""
+def validate_generation_inputs(
+    current_objects: dict[str, dict[str, Any]],
+    inventory_diff: dict[str, list[str]],
+) -> None:
+    for key, row in current_objects.items():
+        parse_object_record(key, row)
+    parse_inventory_diff(inventory_diff)
 
 
 """Atomically write a JSON payload by using a temp file and replace."""
@@ -288,6 +298,8 @@ def concurrent_dask_ref_generation(
     inventory_diff: dict[str, list[str]],
     current_objects: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
+    validate_generation_inputs(current_objects, inventory_diff)
+
     bucket = kp["s3"]["bucket"]
     out_cfg = kp["output"]
     exec_cfg = kp.get("execution", {})
