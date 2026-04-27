@@ -26,7 +26,7 @@ def _utc_now_iso() -> str:
 """Resolve worker count from config, defaulting to a conservative CPU-based value."""
 def _resolve_workers(raw: Any) -> int:
     if raw in (None, "auto"):
-        return max(1, min(8, os.cpu_count()))
+        return max(1, min(8, (os.cpu_count() or 4)))
     return max(1, int(raw))
 
 """Return sorted unique keys that need reference generation."""
@@ -76,6 +76,61 @@ def select_parser(fs: s3fs.S3FileSystem, bucket: str, key: str) -> tuple[HDFPars
 
     parser = HDFParser(drop_variables=string_vars) if string_vars else HDFParser()
     return parser, string_vars
+
+"""Append dropped string variables to vds (Will take a while over network)"""
+def enrich_string_variables(
+    *,
+    vds: Any,
+    fs: s3fs.S3FileSystem,
+    bucket: str,
+    key: str,
+    string_vars: list[str],
+) -> Any:
+    if not string_vars:
+        return vds
+
+    with fs.open(f"{bucket}/{key}", "rb") as fh:
+        ds_real = xr.open_dataset(fh, engine="h5netcdf")
+        for var in string_vars:
+            if var in ds_real:
+                vds = vds.assign_coords({var: ds_real[var].load()})
+    return vds
+
+"""Build VirtualiZarr virtual dataset.Then, exports to Kerchunk Parquet"""
+def build_vds_to_reference(
+    *,
+    source_url: str,
+    registry: ObjectStoreRegistry,
+    parser: HDFParser,
+    fs: s3fs.S3FileSystem,
+    bucket: str,
+    key: str,
+    string_vars: list[str],
+    tmp_ref_path: Path,
+    record_size: int,
+    categorical_threshold: int,
+) -> None:
+    vds = vz.open_virtual_dataset(
+        url=source_url,
+        registry=registry,
+        parser=parser,
+        loadable_variables=[],
+    )
+
+    vds = enrich_string_variables(
+        vds=vds,
+        fs=fs,
+        bucket=bucket,
+        key=key,
+        string_vars=string_vars,
+    )
+
+    vds.vz.to_kerchunk(
+        filepath=str(tmp_ref_path),
+        format="parquet",
+        record_size=record_size,
+        categorical_threshold=categorical_threshold,
+    )
 
 """Ensures that on re-run of pipeline, old references are removed and new references dropped into final_ref_path"""
 def commit_reference(tmp_ref_path: Path, final_ref_path: Path) -> None:
@@ -166,24 +221,15 @@ def generate_reference_for_object(
 
         parser, string_vars = select_parser(fs, bucket, key)
         
-        vds = vz.open_virtual_dataset(
-            url=source_url,
+        build_vds_to_reference(
+            source_url=source_url,
             registry=registry,
             parser=parser,
-            loadable_variables=[],
-        )
-
-        if string_vars:
-            with fs.open(f"{bucket}/{key}", "rb") as f:
-                ds_real = xr.open_dataset(f, engine="h5netcdf")
-                for var in string_vars:
-                    if var in ds_real:
-                        vds = vds.assign_coords({var: ds_real[var].load()})
-
-        # Export to Kerchunk Parquet
-        vds.vz.to_kerchunk(
-            filepath=str(tmp_ref_path),
-            format="parquet",
+            fs=fs,
+            bucket=bucket,
+            key=key,
+            string_vars=string_vars,
+            tmp_ref_path=tmp_ref_path,
             record_size=record_size,
             categorical_threshold=categorical_threshold,
         )
