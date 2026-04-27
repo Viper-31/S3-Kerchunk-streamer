@@ -164,7 +164,6 @@ def save_ledger_after_success(
         )
     _write_json_atomic(ledger_path, next_ledger)
 
-
 """Build an ObjectStore registry for authenticated reads from the configured bucket."""
 def _build_registry(kp: dict[str, Any], access_key: str, secret_key: str) -> ObjectStoreRegistry:
     s3_cfg = kp["s3"]
@@ -258,7 +257,6 @@ def generate_reference_for_object(
         "reference_path": str(final_ref_path),
     }
 
-
 """Remove references for objects that disappeared from source inventory."""
 def remove_deleted_references(
     *,
@@ -280,7 +278,6 @@ def remove_deleted_references(
             missing += 1
 
     return {"removed": removed, "missing": missing}
-
 
 """Generate references concurrently and return summary, results, and failures."""
 def concurrent_dask_ref_generation(
