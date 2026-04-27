@@ -18,7 +18,7 @@ class ObjectRecord:
 """
 New, changed, deleted, and unchanged keys between per object records.
 """
-dataclass(frozen=True)
+@dataclass(frozen=True)
 class InventoryDiff:
     new: list[str]
     changed: list[str]
