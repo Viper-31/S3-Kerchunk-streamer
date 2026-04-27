@@ -1,6 +1,7 @@
 import pickle
 import traceback
 import unittest
+import tempfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -8,6 +9,8 @@ from unittest.mock import MagicMock, patch
 from pipeline.generate_parquet import (
     _build_registry,
     reference_relpath_for_key,
+    build_reference_paths,
+    prepare_temp_target,
     _keys_to_generate,
     _resolve_workers,
     generate_reference_for_object
@@ -110,6 +113,47 @@ class TestKerchunkPipeline(unittest.TestCase):
         key = "ecmwf_op_clean/2024/02/06.nc"
         expected = f"refs/{key}.parquet"
         self.assertEqual(reference_relpath_for_key(key), expected)
+
+    def test_build_reference_paths(self):
+        """Path seam: stable mapping from source key to final/tmp parquet paths."""
+        key = "ecmwf_op_clean/2024/02/06.nc"
+        paths = build_reference_paths(
+            key=key,
+            staging_volume_path="acacia_refs_staging",
+            temp_path="acacia_refs_temp",
+        )
+
+        self.assertEqual(
+            paths.final_ref_path,
+            Path("acacia_refs_staging") / "refs/ecmwf_op_clean/2024/02/06.nc.parquet",
+        )
+        self.assertEqual(
+            paths.tmp_ref_path,
+            Path("acacia_refs_temp") / "ecmwf_op_clean__2024__02__06.nc.tmp.parquet",
+        )
+
+    def test_remove_tmpfile_for_existing_file(self):
+        """Path seam: pre-existing temp parquet file is removed before generation."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp_ref_path = Path(td) / "tmp" / "a.tmp.parquet"
+            tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_ref_path.write_text("stale", encoding="utf-8")
+
+            self.assertTrue(tmp_ref_path.exists())
+            prepare_temp_target(tmp_ref_path)
+            self.assertFalse(tmp_ref_path.exists())
+
+    def test_remove_tmpdir_for_existing_dir(self):
+        """Path seam: pre-existing temp directory at target is removed safely."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp_ref_path = Path(td) / "tmp" / "a.tmp.parquet"
+            tmp_ref_path.mkdir(parents=True, exist_ok=True)
+            (tmp_ref_path / "nested.txt").write_text("stale-dir", encoding="utf-8")
+
+            self.assertTrue(tmp_ref_path.exists())
+            self.assertTrue(tmp_ref_path.is_dir())
+            prepare_temp_target(tmp_ref_path)
+            self.assertFalse(tmp_ref_path.exists())
 
     def test_keys_to_generate(self):
         """Test extraction of keys that need processing."""
