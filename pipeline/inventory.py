@@ -251,9 +251,9 @@ def compute_snapshot_artifacts(
         "summary": summary,
     }
 
-"""Build the current inventory snapshot and diff it against the previAnalyse my codebase again, ignore hidden files/folders. 
-I believe I have carried out Step 0 and 1, check that they are implemented correctly in test_contracts.py and contracts.py respectively. 
-Proceed with showing me how to implement Step 2.  modularising build_inventory_snapshot_and_diff and the associated unit tests. ous ledger."""
+"""
+Build the current inventory snapshot and diff it against the previous ledger. 
+"""
 def build_inventory_snapshot_and_diff(
     kp: dict[str, Any],
     access_key: str,
