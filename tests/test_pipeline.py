@@ -159,7 +159,7 @@ class TestKerchunkPipeline(unittest.TestCase):
 
     @patch("pipeline.generate_parquet.HDFParser")
     @patch("pipeline.generate_parquet.xr.open_dataset")
-    def test_select_parser_detects_string_variables(self, mock_xr_open, mock_hdf_parser):
+    def test_string_var_select_parser(self, mock_xr_open, mock_hdf_parser):
         """Parser seam: detect string-like variables and pass them to drop_variables."""
 
         class _DType:
