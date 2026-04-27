@@ -11,6 +11,8 @@ from pipeline.generate_parquet import (
     reference_relpath_for_key,
     build_reference_paths,
     prepare_temp_target,
+    select_parser,
+    commit_reference,
     _keys_to_generate,
     _resolve_workers,
     generate_reference_for_object
@@ -154,6 +156,54 @@ class TestKerchunkPipeline(unittest.TestCase):
             self.assertTrue(tmp_ref_path.is_dir())
             prepare_temp_target(tmp_ref_path)
             self.assertFalse(tmp_ref_path.exists())
+
+    @patch("pipeline.generate_parquet.HDFParser")
+    @patch("pipeline.generate_parquet.xr.open_dataset")
+    def test_select_parser_detects_string_variables(self, mock_xr_open, mock_hdf_parser):
+        """Parser seam: detect string-like variables and pass them to drop_variables."""
+
+        class _DType:
+            def __init__(self, kind: str):
+                self.kind = kind
+
+        class _Var:
+            def __init__(self, kind: str):
+                self.dtype = _DType(kind)
+
+        mock_dataset = MagicMock()
+        mock_dataset.variables = {
+            "temperature": _Var("f"),
+            "station_name": _Var("U"),
+            "notes": _Var("O"),
+        }
+        mock_xr_open.return_value = mock_dataset
+
+        fs = MagicMock()
+        fs.open.return_value.__enter__.return_value = MagicMock()
+
+        parser, string_vars = select_parser(fs, "weather", "ecmwf_op_clean/2024/02/06.nc")
+
+        self.assertEqual(string_vars, ["station_name", "notes"])
+        mock_hdf_parser.assert_called_once_with(drop_variables=["station_name", "notes"])
+        self.assertIs(parser, mock_hdf_parser.return_value)
+
+    def test_commit_reference_replaces_existing_file(self):
+        """Commit seam: existing final parquet file is replaced by tmp output."""
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            tmp_ref_path = td_path / "work" / "obj.tmp.parquet"
+            final_ref_path = td_path / "refs" / "obj.parquet"
+
+            tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
+            final_ref_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_ref_path.write_text("new-bytes", encoding="utf-8")
+            final_ref_path.write_text("old-bytes", encoding="utf-8")
+
+            commit_reference(tmp_ref_path, final_ref_path)
+
+            self.assertFalse(tmp_ref_path.exists())
+            self.assertTrue(final_ref_path.exists())
+            self.assertEqual(final_ref_path.read_text(encoding="utf-8"), "new-bytes")
 
     def test_keys_to_generate(self):
         """Test extraction of keys that need processing."""
