@@ -15,18 +15,17 @@ from pipeline.generate_parquet import (
     build_vds_to_reference,
     enrich_string_variables,
     commit_reference,
+    validate_generation_inputs,
     _keys_to_generate,
     _resolve_workers,
     generate_reference_for_object
 )
 from pipeline.inventory import (
     diff_inventory,
-    _normalise_etag,
-    _to_iso_utc,
     load_ledger,
-    scan_inventory,
     compute_snapshot_artifacts,
 )
+from pipeline.contracts import ContractError
 from utils.config_utils import load_pipeline_config
 
 # Try to import these for the specialized pickling test
@@ -191,7 +190,7 @@ class TestKerchunkPipeline(unittest.TestCase):
         self.assertIs(parser, mock_hdf_parser.return_value)
 
     def test_commit_reference_replaces_existing_file(self):
-        """Commit seam: existing final parquet file is replaced by tmp output."""
+        """Existing final parquet file is replaced by tmp output."""
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
             tmp_ref_path = td_path / "work" / "obj.tmp.parquet"
@@ -209,7 +208,7 @@ class TestKerchunkPipeline(unittest.TestCase):
             self.assertEqual(final_ref_path.read_text(encoding="utf-8"), "new-bytes")
 
     def test_replace_existing_ref_directory_atomically(self):
-        """Commit seam: existing final directory is removed and replaced by tmp file."""
+        """Existing final directory is removed and replaced by tmp file."""
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
             tmp_ref_path = td_path / "work" / "obj.tmp.parquet"
@@ -247,7 +246,7 @@ class TestKerchunkPipeline(unittest.TestCase):
 
     @patch("pipeline.generate_parquet.enrich_string_variables")
     @patch("pipeline.generate_parquet.vz.open_virtual_dataset")
-    def test_build_vds_to__parq_reference(
+    def test_build_vds_to_parq_reference(
         self,
         mock_open_vz,
         mock_enrich,
@@ -344,6 +343,21 @@ class TestKerchunkPipeline(unittest.TestCase):
         }
         keys = _keys_to_generate(diff)
         self.assertEqual(keys, ["a.nc", "b.nc", "c.nc"])
+
+    def test_generation_input_rejects_missing_key(self):
+        """Current_objects missing required key fails validation early."""
+        current_objects = {
+            "a.nc": {"etag": "e", "last_modified": "t", "size": 1},
+        }
+        inventory_diff = {
+            "new": ["a.nc"],
+            "changed": [],
+            "deleted": [],
+            "unchanged": [],
+        }
+
+        with self.assertRaises(ContractError):
+            validate_generation_inputs(current_objects, inventory_diff)
 
     def test_resolve_workers(self):
         """Test worker count resolution logic."""
