@@ -13,7 +13,7 @@ from pipeline.generate_parquet import (
     prepare_temp_target,
     select_parser,
     build_vds_to_reference,
-    enrich_string_variables_if_needed,
+    enrich_string_variables,
     commit_reference,
     _keys_to_generate,
     _resolve_workers,
@@ -232,7 +232,7 @@ class TestKerchunkPipeline(unittest.TestCase):
         vds = MagicMock()
         fs = MagicMock()
 
-        out = enrich_string_variables_if_needed(
+        out = enrich_string_variables(
             vds=vds,
             fs=fs,
             bucket="weather",
@@ -244,7 +244,7 @@ class TestKerchunkPipeline(unittest.TestCase):
         fs.open.assert_not_called()
         mock_xr_open.assert_not_called()
 
-    @patch("pipeline.generate_parquet.enrich_string_variables_if_needed")
+    @patch("pipeline.generate_parquet.enrich_string_variables")
     @patch("pipeline.generate_parquet.vz.open_virtual_dataset")
     def test_build_vds_to__parq_reference(
         self,
