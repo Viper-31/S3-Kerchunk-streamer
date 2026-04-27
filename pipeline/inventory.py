@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, asdict
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
@@ -12,21 +11,9 @@ import s3fs
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
+from pipeline.contracts import ObjectRecord
+
 LEDGER_SCHEMA_VERSION = 1
-
-"""Ledger row model for one source object used in incremental diffing."""
-@dataclass(frozen=True)
-class MasterLedger:
-    key: str
-    etag: str
-    last_modified: str
-    size: int
-    flow_id: str
-
-    # Convert the dataclass into the stored ledger row format.
-    def to_ledger_record(self) -> dict[str, Any]:
-        return asdict(self)
-
 
 """Return current UTC timestamp in ISO format."""
 def _utc_now_iso() -> str:
@@ -44,6 +31,15 @@ def _to_iso_utc(value: Any) -> str:
             value = value.replace(tzinfo=UTC)
         return value.astimezone(UTC).isoformat()
     return str(value)
+
+
+def _object_record_to_row(record: ObjectRecord) -> dict[str, Any]:
+    return {
+        "etag": record.etag,
+        "last_modified": record.last_modified,
+        "size": record.size,
+        "flow_id": record.flow_id,
+    }
 
 """Create both s3fs and boto3 clients from the validated config and secrets."""
 def build_storage_clients(kp: dict[str, Any], access_key: str, secret_key: str):
@@ -130,7 +126,7 @@ def _iter_prefix_regex_objects(
             if not pattern.match(key):
                 continue
 
-            yield MasterLedger(
+            yield ObjectRecord(
                 key=key,
                 etag=_normalise_etag(obj.get("ETag")),
                 last_modified=_to_iso_utc(obj.get("LastModified")),
@@ -152,7 +148,7 @@ def _iter_exact_key_object(s3_client: Any, bucket: str, flow: dict[str, Any]):
             return
         raise
 
-    yield MasterLedger(
+    yield ObjectRecord(
         key=key,
         etag=_normalise_etag(head.get("ETag")),
         last_modified=_to_iso_utc(head.get("LastModified")),
@@ -184,7 +180,7 @@ def scan_inventory(kp: dict[str, Any], s3_client: Any) -> dict[str, dict[str, An
                     f"Duplicate source key detected across flows: {obj.key}. "
                     "Flow selectors must be mutually exclusive."
                 )
-            objects_by_key[obj.key] = obj.to_ledger_record()
+            objects_by_key[obj.key] = _object_record_to_row(obj)
 
     return objects_by_key
 
@@ -255,7 +251,9 @@ def compute_snapshot_artifacts(
         "summary": summary,
     }
 
-"""Build the current inventory snapshot and diff it against the previous ledger."""
+"""Build the current inventory snapshot and diff it against the previAnalyse my codebase again, ignore hidden files/folders. 
+I believe I have carried out Step 0 and 1, check that they are implemented correctly in test_contracts.py and contracts.py respectively. 
+Proceed with showing me how to implement Step 2.  modularising build_inventory_snapshot_and_diff and the associated unit tests. ous ledger."""
 def build_inventory_snapshot_and_diff(
     kp: dict[str, Any],
     access_key: str,
