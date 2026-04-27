@@ -221,13 +221,13 @@ def diff_inventory(
         "unchanged": unchanged_keys,
     }
 
+"""Build diff, next-ledger payload, and summary from object snapshots."""
 def compute_snapshot_artifacts(
     *,
     previous_objects: dict[str, dict[str, Any]],
     current_objects: dict[str, dict[str, Any]],
     bucket: str,
 ) -> dict[str, Any]:
-    """Build diff, next-ledger payload, and summary from object snapshots."""
     diff = diff_inventory(previous_objects, current_objects)
 
     next_ledger = {
