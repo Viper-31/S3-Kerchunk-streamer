@@ -1,5 +1,4 @@
 import pickle
-import cloudpickle
 import traceback
 import unittest
 from pathlib import Path
@@ -17,9 +16,9 @@ from pipeline.inventory import (
     diff_inventory,
     _normalise_etag,
     _to_iso_utc,
-    MasterLedger,
     load_ledger,
-    scan_inventory
+    scan_inventory,
+    compute_snapshot_artifacts,
 )
 from utils.config_utils import load_pipeline_config
 
@@ -145,20 +144,81 @@ class TestKerchunkPipeline(unittest.TestCase):
         self.assertEqual(diff["new"], ["new.nc"])
         self.assertEqual(diff["changed"], ["changed.nc"])
 
+    def test_compute_snapshot_artifacts_builds_expected_diff_and_counts(self):
+        """Pure transform: verify inventory diff and summary counts are correct."""
+        previous_objects = {
+            "stable.nc": {"etag": "e1", "last_modified": "t1", "size": 100, "flow_id": "f1"},
+            "changed.nc": {"etag": "e2", "last_modified": "t2", "size": 200, "flow_id": "f1"},
+            "deleted.nc": {"etag": "e3", "last_modified": "t3", "size": 300, "flow_id": "f2"},
+        }
+        current_objects = {
+            "stable.nc": {"etag": "e1", "last_modified": "t1", "size": 100, "flow_id": "f1"},
+            "changed.nc": {"etag": "e2-new", "last_modified": "t2", "size": 200, "flow_id": "f1"},
+            "new.nc": {"etag": "e4", "last_modified": "t4", "size": 400, "flow_id": "f2"},
+        }
+
+        artifacts = compute_snapshot_artifacts(
+            previous_objects=previous_objects,
+            current_objects=current_objects,
+            bucket="weather",
+        )
+
+        self.assertEqual(artifacts["diff"]["new"], ["new.nc"])
+        self.assertEqual(artifacts["diff"]["changed"], ["changed.nc"])
+        self.assertEqual(artifacts["diff"]["deleted"], ["deleted.nc"])
+        self.assertEqual(artifacts["diff"]["unchanged"], ["stable.nc"])
+        self.assertEqual(artifacts["summary"]["scanned"], 3)
+        self.assertEqual(artifacts["summary"]["new"], 1)
+        self.assertEqual(artifacts["summary"]["changed"], 1)
+        self.assertEqual(artifacts["summary"]["deleted"], 1)
+        self.assertEqual(artifacts["summary"]["unchanged"], 1)
+
+    def test_compute_snapshot_artifacts_returns_next_ledger_with_contract_shape(self):
+        """Pure transform: next_ledger keeps expected schema/bucket/objects contract."""
+        previous_objects = {}
+        current_objects = {
+            "only.nc": {"etag": "e1", "last_modified": "t1", "size": 10, "flow_id": "f1"},
+        }
+
+        artifacts = compute_snapshot_artifacts(
+            previous_objects=previous_objects,
+            current_objects=current_objects,
+            bucket="weather",
+        )
+
+        next_ledger = artifacts["next_ledger"]
+        self.assertEqual(next_ledger["schema_version"], 1)
+        self.assertEqual(next_ledger["bucket"], "weather")
+        self.assertEqual(next_ledger["objects"], current_objects)
+        self.assertIsInstance(next_ledger["updated_at"], str)
+
+    @patch("pipeline.generate_parquet.xr.open_dataset")    
     @patch("pipeline.generate_parquet.vz.open_virtual_dataset")
     @patch("pipeline.generate_parquet.os.replace")
     @patch("pipeline.generate_parquet.Path.mkdir")
-    def test_generate_reference_success(self, mock_mkdir, mock_replace, mock_open_vz):
+    @patch("pipeline.generate_parquet.s3fs.S3FileSystem")
+    def test_generate_reference_success(self, mock_s3fs, mock_mkdir, mock_replace, mock_open_vz, mock_xr_open):
         """Test successful generation of a reference with mocks."""
         # Setup mock Virtual Dataset context manager
         mock_vds = MagicMock()
         mock_open_vz.return_value.__enter__.return_value = mock_vds
         
+        mock_dataset = MagicMock()
+        mock_dataset.variables = {}
+        mock_xr_open.return_value = mock_dataset
+
         registry = MagicMock(spec=ObjectStoreRegistry) if ObjectStoreRegistry else MagicMock()
+
+        access_key= "test-access-key"
+        secret_key= "test-secret-key"
+
         
         result = generate_reference_for_object(
             key="test/data.nc",
             bucket="my-bucket",
+            access_key=access_key,
+            secret_key=secret_key,
+            s3_config=self.kp["s3"],
             registry=registry,
             staging_volume_path="staging",
             temp_path="temp",
