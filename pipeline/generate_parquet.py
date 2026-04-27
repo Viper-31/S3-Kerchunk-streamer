@@ -25,7 +25,7 @@ def _utc_now_iso() -> str:
 """Resolve worker count from config, defaulting to a conservative CPU-based value."""
 def _resolve_workers(raw: Any) -> int:
     if raw in (None, "auto"):
-        return max(1, min(8, (os.cpu_count() or 4)))
+        return max(1, min(8, os.cpu_count()))
     return max(1, int(raw))
 
 """Return sorted unique keys that need reference generation."""
@@ -248,7 +248,9 @@ def concurrent_dask_ref_generation(
     results: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
 
-    client= Client(threads_per_worker=1)
+    raw_workers= exec_cfg.get("max_workers")
+    workers_number= _resolve_workers(raw_workers)
+    client= Client(n_workers=workers_number,threads_per_worker=1)
     tasks= []
     for key in keys:
         task= dask.delayed(generate_reference_for_object) (
