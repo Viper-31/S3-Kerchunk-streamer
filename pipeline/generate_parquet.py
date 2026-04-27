@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+from dataclasses import dataclass
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,28 @@ def _keys_to_generate(diff: dict[str, list[str]]) -> list[str]:
 """Map a source key to a stable parquet reference output path."""
 def reference_relpath_for_key(source_key: str) -> str:
     return f"refs/{source_key}.parquet"
+
+
+@dataclass(frozen=True)
+class ReferencePaths:
+    final_ref_path: Path
+    tmp_ref_path: Path
+
+
+def build_reference_paths(key: str, staging_volume_path: str, temp_path: str) -> ReferencePaths:
+    return ReferencePaths(
+        final_ref_path=Path(staging_volume_path) / reference_relpath_for_key(key),
+        tmp_ref_path=Path(temp_path) / f"{key.replace('/', '__')}.tmp.parquet",
+    )
+
+
+def prepare_temp_target(tmp_ref_path: Path) -> None:
+    tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
+    if tmp_ref_path.exists():
+        if tmp_ref_path.is_dir():
+            shutil.rmtree(tmp_ref_path, ignore_errors=True)
+        else:
+            tmp_ref_path.unlink(missing_ok=True)
 
 
 """Atomically write a JSON payload by using a temp file and replace."""
@@ -95,18 +118,12 @@ def generate_reference_for_object(
     source_url = f"s3://{bucket}/{key}"
     flow_id = current_objects.get(key, {}).get("flow_id", "unknown")
 
-    rel_ref = reference_relpath_for_key(key)
-    final_ref_path = Path(staging_volume_path) / rel_ref
-    tmp_ref_path = Path(temp_path) / f"{key.replace('/', '__')}.tmp.parquet"
+    ref_paths = build_reference_paths(key, staging_volume_path, temp_path)
+    final_ref_path = ref_paths.final_ref_path
+    tmp_ref_path = ref_paths.tmp_ref_path
 
     final_ref_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if tmp_ref_path.exists():
-        if tmp_ref_path.is_dir():
-            shutil.rmtree(tmp_ref_path, ignore_errors=True)
-        else:
-            tmp_ref_path.unlink(missing_ok=True)
+    prepare_temp_target(tmp_ref_path)
 
     parser_used = None
     last_error = None
