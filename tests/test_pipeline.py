@@ -178,6 +178,7 @@ class TestKerchunkPipeline(unittest.TestCase):
             "station_name": _Var("U"),
             "notes": _Var("O"),
         }
+        mock_dataset.__getitem__.side_effect = lambda k: mock_dataset.variables.get(k)
         mock_xr_open.return_value = mock_dataset
 
         fs = MagicMock()
@@ -423,7 +424,7 @@ class TestKerchunkPipeline(unittest.TestCase):
         """Test successful generation of a reference with mocks."""
         # Setup mock Virtual Dataset context manager
         mock_vds = MagicMock()
-        mock_open_vz.return_value.__enter__.return_value = mock_vds
+        mock_open_vz.return_value = mock_vds
         
         mock_dataset = MagicMock()
         mock_dataset.variables = {}
