@@ -38,19 +38,20 @@ def _keys_to_generate(diff: dict[str, list[str]]) -> list[str]:
 def reference_relpath_for_key(source_key: str) -> str:
     return f"refs/{source_key}.parquet"
 
-
+"""
+Tmp and final staging paths to drop Kerchunk Parquet reference files.
+Paths configured in config.yaml
+"""
 @dataclass(frozen=True)
 class ReferencePaths:
     final_ref_path: Path
     tmp_ref_path: Path
-
 
 def build_reference_paths(key: str, staging_volume_path: str, temp_path: str) -> ReferencePaths:
     return ReferencePaths(
         final_ref_path=Path(staging_volume_path) / reference_relpath_for_key(key),
         tmp_ref_path=Path(temp_path) / f"{key.replace('/', '__')}.tmp.parquet",
     )
-
 
 def prepare_temp_target(tmp_ref_path: Path) -> None:
     tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,6 +60,32 @@ def prepare_temp_target(tmp_ref_path: Path) -> None:
             shutil.rmtree(tmp_ref_path, ignore_errors=True)
         else:
             tmp_ref_path.unlink(missing_ok=True)
+
+"""
+Inspect dtypes and choose parser configuration. Fixes AttributeError: 'bytes' object has no attribute .item()
+If variables is String/Object/U dtype, drop the string_variable in HDFParser.
+"""
+def select_parser(fs: s3fs.S3FileSystem, bucket: str, key: str) -> tuple[HDFParser, list[str]]:
+    with fs.open(f"{bucket}/{key}", "rb") as fh:
+        ds_real = xr.open_dataset(fh, engine="h5netcdf")
+        string_vars = [
+            var_name
+            for var_name in ds_real.variables
+            if ds_real[var_name].dtype.kind in ("S", "U", "O")
+        ]
+
+    parser = HDFParser(drop_variables=string_vars) if string_vars else HDFParser()
+    return parser, string_vars
+
+"""Ensures that on re-run of pipeline, old references are removed and new references dropped into final_ref_path"""
+def commit_reference(tmp_ref_path: Path, final_ref_path: Path) -> None:
+    if final_ref_path.exists():
+        if final_ref_path.is_dir():
+            shutil.rmtree(final_ref_path, ignore_errors=True)
+        else:
+            final_ref_path.unlink(missing_ok=True)
+
+    os.replace(tmp_ref_path, final_ref_path)
 
 
 """Atomically write a JSON payload by using a temp file and replace."""
@@ -137,13 +164,7 @@ def generate_reference_for_object(
             config_kwargs={"signature_version": "s3v4", "s3": {"addressing_style": "path"}}
         )
 
-        # Inspect dtypes
-        with fs.open(f"{bucket}/{key}", "rb") as f:
-            ds_real = xr.open_dataset(f, engine="h5netcdf")
-            string_vars = [v for v in ds_real.variables if ds_real[v].dtype.kind in ("S", "U", "O")]
-
-        # Use appropriate parser, drop problematic strings from the parser
-        parser = HDFParser(drop_variables=string_vars) if string_vars else HDFParser()
+        parser, string_vars = select_parser(fs, bucket, key)
         
         vds = vz.open_virtual_dataset(
             url=source_url,
@@ -181,13 +202,7 @@ def generate_reference_for_object(
             "error": f"{type(last_error).__name__}: {last_error}",
         }
 
-    if final_ref_path.exists():
-        if final_ref_path.is_dir():
-            shutil.rmtree(final_ref_path, ignore_errors=True)
-        else:
-            final_ref_path.unlink(missing_ok=True)
-
-    os.replace(tmp_ref_path, final_ref_path)
+    commit_reference(tmp_ref_path, final_ref_path)
     
     return {
         "key": key,
