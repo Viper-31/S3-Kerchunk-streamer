@@ -225,24 +225,19 @@ def diff_inventory(
         "unchanged": unchanged_keys,
     }
 
-"""Build the current inventory snapshot and diff it against the previous ledger."""
-def build_inventory_snapshot_and_diff(
-    kp: dict[str, Any],
-    access_key: str,
-    secret_key: str,
+def compute_snapshot_artifacts(
+    *,
+    previous_objects: dict[str, dict[str, Any]],
+    current_objects: dict[str, dict[str, Any]],
+    bucket: str,
 ) -> dict[str, Any]:
-    fs, s3_client = build_storage_clients(kp, access_key, secret_key)
-
-    previous_ledger = load_ledger(kp["output"]["ledger_path"])
-    previous_objects = previous_ledger.get("objects", {})
-
-    current_objects = scan_inventory(kp, s3_client)
+    """Build diff, next-ledger payload, and summary from object snapshots."""
     diff = diff_inventory(previous_objects, current_objects)
 
     next_ledger = {
         "schema_version": LEDGER_SCHEMA_VERSION,
         "updated_at": _utc_now_iso(),
-        "bucket": kp["s3"]["bucket"],
+        "bucket": bucket,
         "objects": current_objects,
     }
 
@@ -255,10 +250,34 @@ def build_inventory_snapshot_and_diff(
     }
 
     return {
-        "filesystem": fs,
-        "summary": summary,
         "diff": diff,
+        "next_ledger": next_ledger,
+        "summary": summary,
+    }
+
+"""Build the current inventory snapshot and diff it against the previous ledger."""
+def build_inventory_snapshot_and_diff(
+    kp: dict[str, Any],
+    access_key: str,
+    secret_key: str,
+) -> dict[str, Any]:
+    fs, s3_client = build_storage_clients(kp, access_key, secret_key)
+
+    previous_ledger = load_ledger(kp["output"]["ledger_path"])
+    previous_objects = previous_ledger.get("objects", {})
+
+    current_objects = scan_inventory(kp, s3_client)
+    snapshot_artifacts = compute_snapshot_artifacts(
+        previous_objects=previous_objects,
+        current_objects=current_objects,
+        bucket=kp["s3"]["bucket"],
+    )
+
+    return {
+        "filesystem": fs,
+        "summary": snapshot_artifacts["summary"],
+        "diff": snapshot_artifacts["diff"],
         "previous_ledger": previous_ledger,
         "current_objects": current_objects,
-        "next_ledger": next_ledger,
+        "next_ledger": snapshot_artifacts["next_ledger"],
     }
