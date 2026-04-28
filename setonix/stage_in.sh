@@ -10,7 +10,7 @@
 
 module load rclone/1.68.1
 
-echo "Starting stage-in from Acacia to $MYSCRATCH/acacia_clean_data..."
+echo "Starting stage-in from Acacia to $MYSCRATCH/acacia_clean_data at $(date)"
 
 mkdir -p $MYSCRATCH/acacia_clean_data
 
@@ -29,5 +29,5 @@ rclone copy pawsey0411:weather/ecmwf_op_clean/ \
     --transfers 8 \
     --checkers 16
 
-echo "Stage-in complete."
+echo "Stage-in complete at $(date)"
 ls -R $MYSCRATCH/acacia_clean_data
