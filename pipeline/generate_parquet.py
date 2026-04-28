@@ -307,8 +307,8 @@ def concurrent_dask_ref_generation(
     staging_volume_path = out_cfg["staging_volume_path"]
     temp_path = out_cfg["temp_path"]
 
-    record_size = int(exec_cfg.get("parquet_record_size", 100000))
-    categorical_threshold = int(exec_cfg.get("parquet_categorical_threshold", 10))
+    record_size = exec_cfg["parquet_record_size"]
+    categorical_threshold = exec_cfg["categorical_threshold"]
 
     keys = _keys_to_generate(inventory_diff)
     deleted_keys = sorted(inventory_diff.get("deleted", []))
