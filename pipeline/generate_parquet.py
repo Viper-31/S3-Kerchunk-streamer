@@ -78,7 +78,7 @@ def select_parser(fs: s3fs.S3FileSystem, bucket: str, key: str) -> tuple[HDFPars
     parser = HDFParser(drop_variables=string_vars) if string_vars else HDFParser()
     return parser, string_vars
 
-"""Append dropped string variables to vds (Will take a while over network)"""
+"""Append dropped string dimensions to vds (Will take a while over network)"""
 def enrich_string_variables(
     *,
     vds: Any,
