@@ -13,7 +13,7 @@ data_out_dir = SCRATCH / "vz_kerchunk"
 config = {
     "dpird": {
         "pattern": "DPIRD_final_stations.nc",
-        "chunks": {"time": 3289},
+        "chunks": {'station':96,'time':13156},
         "complevel": 5
     },
     "ecmwf": {
@@ -34,7 +34,7 @@ def build_var_encoding(ds, chunk_dict, complevel=5):
     enc = {}
     for v in ds.data_vars:
         var_chunks = tuple(chunk_dict.get(dim, ds[v].sizes[dim]) for dim in ds[v].dims)
-        
+        #!!NEED TO FIX: Patch encoding FIRST
         enc[v] = {
             "zlib": True,
             "complevel": complevel,
@@ -56,7 +56,7 @@ def process_file(in_path, dataset_type):
         ds = xr.open_dataset(in_path, engine="h5netcdf", chunks=spec["chunks"])
         
         encoding = build_var_encoding(ds, spec["chunks"], complevel=spec["complevel"])
-        
+        #---Fail to_netcdf() gracefully
         write_job = ds.to_netcdf(
             path=out_path,
             engine="h5netcdf",
