@@ -23,7 +23,7 @@ REQUIRED_MODULES = [
     "distributed",
     "fsspec",
     "fastparquet",
-    "s3fs",
+    "obstore",
     "xarray",
     "zarr",
     "kerchunk",
