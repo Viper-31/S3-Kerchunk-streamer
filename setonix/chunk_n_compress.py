@@ -12,12 +12,12 @@ data_out_dir = SCRATCH / "vz_kerchunk"
 # Encoding and Chunking Specifications
 config = {
     "dpird": {
-        "pattern": "DPIRD_final_stations.nc",
+        "pattern": "DPIRD/DPIRD_final_stations.nc",
         "chunks": {'station':96,'time':13156},
         "complevel": 5
     },
     "ecmwf": {
-        "pattern": "ecmwf_op_clean/**/*.nc",
+        "pattern": "ECMWF/**/*.nc",
         "chunks": {"time": 4, "step": 25},
         "complevel": 5
     }
@@ -34,7 +34,6 @@ def build_var_encoding(ds, chunk_dict, complevel=5):
     enc = {}
     for v in ds.data_vars:
         var_chunks = tuple(chunk_dict.get(dim, ds[v].sizes[dim]) for dim in ds[v].dims)
-        #!!NEED TO FIX: Patch encoding FIRST
         enc[v] = {
             "zlib": True,
             "complevel": complevel,
@@ -62,7 +61,7 @@ def process_file(in_path, dataset_type):
             engine="h5netcdf",
             format="NETCDF4",
             encoding=encoding,
-            compute=False # Returns a Dask object
+            compute=False
         )
         return write_job
     except Exception as e:
