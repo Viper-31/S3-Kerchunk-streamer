@@ -14,6 +14,6 @@ source zarr_venv/bin/activate
 
 echo "Starting Chunking and Compression at $(date)"
 
-python -u setonix/chunk_n_compress.py
+python -u scripts/chunk_n_compress.py
 
 echo "Finished at $(date)"
