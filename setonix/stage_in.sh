@@ -12,18 +12,19 @@ module load rclone/1.68.1
 
 echo "Starting stage-in from Acacia to $MYSCRATCH/acacia_clean_data at $(date)"
 
-mkdir -p $MYSCRATCH/acacia_clean_data
+mkdir -p $MYSCRATCH/acacia_clean_data/DPIRD
+mkdir -p $MYSCRATCH/acacia_clean_data/ECMWF
 
 # Stage DPIRD Singleton
 echo "Pulling DPIRD singleton..."
 rclone copy pawsey0411:weather/FINAL_DPIRD/DPIRD_final_stations.nc \
-    $MYSCRATCH/acacia_clean_data/ \
+    $MYSCRATCH/acacia_clean_data/DPIRD/ \
     --progress
 
 # Stage ECMWF daily files
 echo "Pulling ECMWF daily files..."
 rclone copy pawsey0411:weather/ecmwf_op_clean/ \
-    $MYSCRATCH/acacia_clean_data/ecmwf_op_clean/ \
+    $MYSCRATCH/acacia_clean_data/ECMWF/ \
     --include "[0-9][0-9][0-9][0-9]/[0-9][0-9]/[0-9][0-9].nc" \
     --progress \
     --transfers 8 \
