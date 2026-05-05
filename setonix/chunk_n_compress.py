@@ -52,10 +52,10 @@ def process_file(in_path, dataset_type):
     print(f"Processing {dataset_type}: {in_path} -> {out_path}")
     
     try:
-        ds = xr.open_dataset(in_path, engine="h5netcdf", chunks=spec["chunks"])
-        
+        ds = xr.open_dataset(in_path, engine="h5netcdf")
+        ds = ds.chunk(spec["chunks"])
         encoding = build_var_encoding(ds, spec["chunks"], complevel=spec["complevel"])
-        #---Fail to_netcdf() gracefully
+       
         write_job = ds.to_netcdf(
             path=out_path,
             engine="h5netcdf",
