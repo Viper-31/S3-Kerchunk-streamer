@@ -71,11 +71,12 @@ def process_file(in_path, dataset_type):
 def main():
     data_out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Initialize Dask LocalCluster for Setonix Node (128 cores)
+    # Initialize Dask LocalCluster for Setonix Node (180GB/16 workers= 11.25GB per worker)
     cluster = LocalCluster(
-        n_workers=128, 
-        threads_per_worker=1,
-        memory_limit='auto'
+        n_workers=16, 
+        threads_per_worker=4, # n_workers x threads_per_worker = SBATCH cpus
+        memory_limit="11GB",
+        dashboard_address=":8787"
     )
     client = Client(cluster)
     print(f"Dask Dashboard available at: {client.dashboard_link}")
