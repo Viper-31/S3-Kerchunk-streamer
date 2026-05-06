@@ -49,7 +49,7 @@ def process_file(in_path, dataset_type):
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        with xr.open_dataset(in_path, engine="h5netcdf", chunks={}) as ds:
+        with xr.open_dataset(in_path, engine="h5netcdf") as ds:
             ds = ds.chunk(spec["chunks"])
             encoding = build_var_encoding(ds, spec["chunks"], complevel=spec["complevel"])
         
