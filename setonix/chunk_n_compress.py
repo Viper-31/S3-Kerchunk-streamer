@@ -48,21 +48,18 @@ def process_file(in_path, dataset_type):
     out_path = data_out_dir / rel_path
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"Processing {dataset_type}: {in_path} -> {out_path}")
-    
     try:
-        ds = xr.open_dataset(in_path, engine="h5netcdf")
-        ds = ds.chunk(spec["chunks"])
-        encoding = build_var_encoding(ds, spec["chunks"], complevel=spec["complevel"])
-       
-        write_job = ds.to_netcdf(
-            path=out_path,
-            engine="h5netcdf",
-            format="NETCDF4",
-            encoding=encoding,
-            compute=False
-        )
-        return write_job
+        with xr.open_dataset(in_path, engine="h5netcdf", chunks={}) as ds:
+            ds = ds.chunk(spec["chunks"])
+            encoding = build_var_encoding(ds, spec["chunks"], complevel=spec["complevel"])
+        
+            ds.to_netcdf(
+                path=out_path,
+                engine="h5netcdf",
+                format="NETCDF4",
+                encoding=encoding
+            )
+        return f"Completed: {in_path} -> {out_path}"
     except Exception as e:
         print(f"Error preparing {in_path}: {e}")
         return None
@@ -72,38 +69,37 @@ def main():
 
     # Initialize Dask LocalCluster for Setonix Node (180GB/16 workers= 11.25GB per worker)
     cluster = LocalCluster(
-        n_workers=16, 
-        threads_per_worker=4, # n_workers x threads_per_worker = SBATCH cpus
+        n_workers=32, 
+        threads_per_worker=1, # n_workers x threads_per_worker = SBATCH cpus
         memory_limit="11GB",
         dashboard_address=":8787"
     )
     client = Client(cluster)
     print(f"Dask Dashboard available at: {client.dashboard_link}")
 
-    tasks = []
+    task_args = []
     
     dpird_files = list(data_in_dir.glob(config["dpird"]["pattern"]))
     for f in dpird_files:
-        tasks.append(process_file(f, "dpird"))
+        task_args.append((f, "dpird"))
         
     ecmwf_files = list(data_in_dir.glob(config["ecmwf"]["pattern"]))
     for f in ecmwf_files:
-        tasks.append(process_file(f, "ecmwf"))
+        task_args.append((f, "ecmwf"))
 
-    tasks = [t for t in tasks if t is not None]
-
-    if not tasks:
+    if not task_args:
         print("No files found to process. Check $MYSCRATCH/acacia_clean_data")
+        client.close()
+        cluster.close()
         return
 
-    print(f"Submitting {len(tasks)} tasks across {len(client.scheduler_info()['workers'])} workers on cluster ...")
+    print(f"Submitting {len(task_args)} tasks across {len(client.scheduler_info()['workers'])} workers on cluster ...")
     
-    futures= client.compute(tasks)
-    # Process as each write completes to keep memory graph managable
+    futures= client.map(lambda x: process_file(*x), task_args)
+    
     for future in as_completed(futures):
-        future.result()
-            
-    print("All transformations complete.")
+        print(future.result())
+
     client.close()
     cluster.close()
 
