@@ -1,8 +1,7 @@
 import os
 from pathlib import Path
 import warnings
-import dask
-from dask.distributed import Client, LocalCluster
+from dask.distributed import Client, LocalCluster, as_completed
 import xarray as xr
 
 SCRATCH = Path(os.environ.get("MYSCRATCH", "/tmp"))
@@ -97,11 +96,13 @@ def main():
         print("No files found to process. Check $MYSCRATCH/acacia_clean_data")
         return
 
-    print(f"Executing {len(tasks)} transformation tasks across {len(client.scheduler_info()['workers'])} workers...")
+    print(f"Submitting {len(tasks)} tasks across {len(client.scheduler_info()['workers'])} workers on cluster ...")
     
-    #Execute in parallel
-    dask.compute(*tasks)
-    
+    futures= client.compute(tasks)
+    # Process as each write completes to keep memory graph managable
+    for future in as_completed(futures):
+        future.result()
+            
     print("All transformations complete.")
     client.close()
     cluster.close()
