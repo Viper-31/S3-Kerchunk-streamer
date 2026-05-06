@@ -1,7 +1,7 @@
 import pickle
-import cloudpickle
 import traceback
 import unittest
+import tempfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -9,18 +9,23 @@ from unittest.mock import MagicMock, patch
 from pipeline.generate_parquet import (
     _build_registry,
     reference_relpath_for_key,
+    build_reference_paths,
+    prepare_temp_target,
+    select_parser,
+    build_vds_to_reference,
+    enrich_string_variables,
+    commit_reference,
+    validate_generation_inputs,
     _keys_to_generate,
     _resolve_workers,
     generate_reference_for_object
 )
 from pipeline.inventory import (
     diff_inventory,
-    _normalise_etag,
-    _to_iso_utc,
-    MasterLedger,
     load_ledger,
-    scan_inventory
+    compute_snapshot_artifacts,
 )
+from pipeline.contracts import ContractError
 from utils.config_utils import load_pipeline_config
 
 # Try to import these for the specialized pickling test
@@ -112,6 +117,222 @@ class TestKerchunkPipeline(unittest.TestCase):
         expected = f"refs/{key}.parquet"
         self.assertEqual(reference_relpath_for_key(key), expected)
 
+    def test_build_reference_paths(self):
+        """Path seam: stable mapping from source key to final/tmp parquet paths."""
+        key = "ecmwf_op_clean/2024/02/06.nc"
+        paths = build_reference_paths(
+            key=key,
+            staging_volume_path="acacia_refs_staging",
+            temp_path="acacia_refs_temp",
+        )
+
+        self.assertEqual(
+            paths.final_ref_path,
+            Path("acacia_refs_staging") / "refs/ecmwf_op_clean/2024/02/06.nc.parquet",
+        )
+        self.assertEqual(
+            paths.tmp_ref_path,
+            Path("acacia_refs_temp") / "ecmwf_op_clean__2024__02__06.nc.tmp.parquet",
+        )
+
+    def test_remove_tmpfile_for_existing_file(self):
+        """Path seam: pre-existing temp parquet file is removed before generation."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp_ref_path = Path(td) / "tmp" / "a.tmp.parquet"
+            tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_ref_path.write_text("stale", encoding="utf-8")
+
+            self.assertTrue(tmp_ref_path.exists())
+            prepare_temp_target(tmp_ref_path)
+            self.assertFalse(tmp_ref_path.exists())
+
+    def test_remove_tmpdir_for_existing_dir(self):
+        """Path seam: pre-existing temp directory at target is removed safely."""
+        with tempfile.TemporaryDirectory() as td:
+            tmp_ref_path = Path(td) / "tmp" / "a.tmp.parquet"
+            tmp_ref_path.mkdir(parents=True, exist_ok=True)
+            (tmp_ref_path / "nested.txt").write_text("stale-dir", encoding="utf-8")
+
+            self.assertTrue(tmp_ref_path.exists())
+            self.assertTrue(tmp_ref_path.is_dir())
+            prepare_temp_target(tmp_ref_path)
+            self.assertFalse(tmp_ref_path.exists())
+
+    @patch("pipeline.generate_parquet.HDFParser")
+    @patch("pipeline.generate_parquet.xr.open_dataset")
+    def test_string_var_select_parser(self, mock_xr_open, mock_hdf_parser):
+        """Parser seam: detect string-like variables and pass them to drop_variables."""
+
+        class _DType:
+            def __init__(self, kind: str):
+                self.kind = kind
+
+        class _Var:
+            def __init__(self, kind: str):
+                self.dtype = _DType(kind)
+
+        mock_dataset = MagicMock()
+        mock_dataset.variables = {
+            "temperature": _Var("f"),
+            "station_name": _Var("U"),
+            "notes": _Var("O"),
+        }
+        mock_dataset.__getitem__.side_effect = lambda k: mock_dataset.variables.get(k)
+        mock_xr_open.return_value = mock_dataset
+
+        fs = MagicMock()
+        fs.open.return_value.__enter__.return_value = MagicMock()
+
+        parser, string_vars = select_parser(fs, "weather", "ecmwf_op_clean/2024/02/06.nc")
+
+        self.assertEqual(string_vars, ["station_name", "notes"])
+        mock_hdf_parser.assert_called_once_with(drop_variables=["station_name", "notes"])
+        self.assertIs(parser, mock_hdf_parser.return_value)
+
+    def test_commit_reference_replaces_existing_file(self):
+        """Existing final parquet file is replaced by tmp output."""
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            tmp_ref_path = td_path / "work" / "obj.tmp.parquet"
+            final_ref_path = td_path / "refs" / "obj.parquet"
+
+            tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
+            final_ref_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_ref_path.write_text("new-bytes", encoding="utf-8")
+            final_ref_path.write_text("old-bytes", encoding="utf-8")
+
+            commit_reference(tmp_ref_path, final_ref_path)
+
+            self.assertFalse(tmp_ref_path.exists())
+            self.assertTrue(final_ref_path.exists())
+            self.assertEqual(final_ref_path.read_text(encoding="utf-8"), "new-bytes")
+
+    def test_replace_existing_ref_directory_atomically(self):
+        """Existing final directory is removed and replaced by tmp file."""
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            tmp_ref_path = td_path / "work" / "obj.tmp.parquet"
+            final_ref_path = td_path / "refs" / "obj.parquet"
+
+            tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
+            final_ref_path.mkdir(parents=True, exist_ok=True)
+            (final_ref_path / "stale.txt").write_text("stale", encoding="utf-8")
+            tmp_ref_path.write_text("new-bytes", encoding="utf-8")
+
+            commit_reference(tmp_ref_path, final_ref_path)
+
+            self.assertFalse(tmp_ref_path.exists())
+            self.assertTrue(final_ref_path.exists())
+            self.assertTrue(final_ref_path.is_file())
+            self.assertEqual(final_ref_path.read_text(encoding="utf-8"), "new-bytes")
+
+    @patch("pipeline.generate_parquet.xr.open_dataset")
+    def test_enrich_string_variables(self, mock_xr_open):
+        """Enrichment seam: no string vars means no reopen or coord assignment."""
+        vds = MagicMock()
+        fs = MagicMock()
+
+        out = enrich_string_variables(
+            vds=vds,
+            fs=fs,
+            bucket="weather",
+            key="k.nc",
+            string_vars=[],
+        )
+
+        self.assertIs(out, vds)
+        fs.open.assert_not_called()
+        mock_xr_open.assert_not_called()
+
+    @patch("pipeline.generate_parquet.enrich_string_variables")
+    @patch("pipeline.generate_parquet.vz.open_virtual_dataset")
+    def test_build_vds_to_parq_reference(
+        self,
+        mock_open_vz,
+        mock_enrich,
+    ):
+        """Combined seam: open virtual dataset, enrich, and write parquet reference."""
+        raw_vds = MagicMock()
+        enriched_vds = MagicMock()
+        mock_open_vz.return_value = raw_vds
+        mock_enrich.return_value = enriched_vds
+
+        tmp_ref_path = Path("/tmp/ref.tmp.parquet")
+        parser = MagicMock()
+        registry = MagicMock()
+        fs = MagicMock()
+
+        build_vds_to_reference(
+            source_url="s3://weather/x.nc",
+            registry=registry,
+            parser=parser,
+            fs=fs,
+            bucket="weather",
+            key="x.nc",
+            string_vars=["station_name"],
+            tmp_ref_path=tmp_ref_path,
+            record_size=100000,
+            categorical_threshold=10,
+        )
+
+        mock_open_vz.assert_called_once_with(
+            url="s3://weather/x.nc",
+            registry=registry,
+            parser=parser,
+            loadable_variables=[],
+        )
+        mock_enrich.assert_called_once_with(
+            vds=raw_vds,
+            fs=fs,
+            bucket="weather",
+            key="x.nc",
+            string_vars=["station_name"],
+        )
+        enriched_vds.vz.to_kerchunk.assert_called_once_with(
+            filepath=str(tmp_ref_path),
+            format="parquet",
+            record_size=100000,
+            categorical_threshold=10,
+        )
+
+    @patch("pipeline.generate_parquet.build_vds_to_reference")
+    @patch("pipeline.generate_parquet.select_parser")
+    @patch("pipeline.generate_parquet.commit_reference")
+    @patch("pipeline.generate_parquet.s3fs.S3FileSystem")
+    def test_generate_reference_orchestrator(
+        self,
+        mock_s3fs,
+        mock_commit,
+        mock_select_parser,
+        mock_build_vds,
+    ):
+        """Orchestrator seam: generate_reference_for_object delegates to extracted units."""
+        parser = MagicMock()
+        mock_select_parser.return_value = (parser, ["station_name"])
+
+        registry = MagicMock(spec=ObjectStoreRegistry) if ObjectStoreRegistry else MagicMock()
+
+        result = generate_reference_for_object(
+            key="test/data.nc",
+            bucket="my-bucket",
+            access_key="ak",
+            secret_key="sk",
+            s3_config={"endpoint_url": "https://projects.pawsey.org.au"},
+            registry=registry,
+            staging_volume_path="staging",
+            temp_path="temp",
+            current_objects={"test/data.nc": {"flow_id": "flow1"}},
+            record_size=100,
+            categorical_threshold=10,
+        )
+
+        self.assertEqual(result["status"], "generated")
+        self.assertEqual(result["key"], "test/data.nc")
+        self.assertEqual(result["flow_id"], "flow1")
+        mock_select_parser.assert_called_once()
+        mock_build_vds.assert_called_once()
+        mock_commit.assert_called_once()
+
     def test_keys_to_generate(self):
         """Test extraction of keys that need processing."""
         diff = {
@@ -122,6 +343,21 @@ class TestKerchunkPipeline(unittest.TestCase):
         }
         keys = _keys_to_generate(diff)
         self.assertEqual(keys, ["a.nc", "b.nc", "c.nc"])
+
+    def test_generation_input_rejects_missing_key(self):
+        """Current_objects missing required key fails validation early."""
+        current_objects = {
+            "a.nc": {"etag": "e", "last_modified": "t", "size": 1},
+        }
+        inventory_diff = {
+            "new": ["a.nc"],
+            "changed": [],
+            "deleted": [],
+            "unchanged": [],
+        }
+
+        with self.assertRaises(ContractError):
+            validate_generation_inputs(current_objects, inventory_diff)
 
     def test_resolve_workers(self):
         """Test worker count resolution logic."""
@@ -145,20 +381,81 @@ class TestKerchunkPipeline(unittest.TestCase):
         self.assertEqual(diff["new"], ["new.nc"])
         self.assertEqual(diff["changed"], ["changed.nc"])
 
+    def test_compute_snapshot_artifacts_builds_expected_diff_and_counts(self):
+        """Pure transform: verify inventory diff and summary counts are correct."""
+        previous_objects = {
+            "stable.nc": {"etag": "e1", "last_modified": "t1", "size": 100, "flow_id": "f1"},
+            "changed.nc": {"etag": "e2", "last_modified": "t2", "size": 200, "flow_id": "f1"},
+            "deleted.nc": {"etag": "e3", "last_modified": "t3", "size": 300, "flow_id": "f2"},
+        }
+        current_objects = {
+            "stable.nc": {"etag": "e1", "last_modified": "t1", "size": 100, "flow_id": "f1"},
+            "changed.nc": {"etag": "e2-new", "last_modified": "t2", "size": 200, "flow_id": "f1"},
+            "new.nc": {"etag": "e4", "last_modified": "t4", "size": 400, "flow_id": "f2"},
+        }
+
+        artifacts = compute_snapshot_artifacts(
+            previous_objects=previous_objects,
+            current_objects=current_objects,
+            bucket="weather",
+        )
+
+        self.assertEqual(artifacts["diff"]["new"], ["new.nc"])
+        self.assertEqual(artifacts["diff"]["changed"], ["changed.nc"])
+        self.assertEqual(artifacts["diff"]["deleted"], ["deleted.nc"])
+        self.assertEqual(artifacts["diff"]["unchanged"], ["stable.nc"])
+        self.assertEqual(artifacts["summary"]["scanned"], 3)
+        self.assertEqual(artifacts["summary"]["new"], 1)
+        self.assertEqual(artifacts["summary"]["changed"], 1)
+        self.assertEqual(artifacts["summary"]["deleted"], 1)
+        self.assertEqual(artifacts["summary"]["unchanged"], 1)
+
+    def test_compute_snapshot_artifacts_returns_next_ledger_with_contract_shape(self):
+        """Pure transform: next_ledger keeps expected schema/bucket/objects contract."""
+        previous_objects = {}
+        current_objects = {
+            "only.nc": {"etag": "e1", "last_modified": "t1", "size": 10, "flow_id": "f1"},
+        }
+
+        artifacts = compute_snapshot_artifacts(
+            previous_objects=previous_objects,
+            current_objects=current_objects,
+            bucket="weather",
+        )
+
+        next_ledger = artifacts["next_ledger"]
+        self.assertEqual(next_ledger["schema_version"], 1)
+        self.assertEqual(next_ledger["bucket"], "weather")
+        self.assertEqual(next_ledger["objects"], current_objects)
+        self.assertIsInstance(next_ledger["updated_at"], str)
+
+    @patch("pipeline.generate_parquet.xr.open_dataset")    
     @patch("pipeline.generate_parquet.vz.open_virtual_dataset")
     @patch("pipeline.generate_parquet.os.replace")
     @patch("pipeline.generate_parquet.Path.mkdir")
-    def test_generate_reference_success(self, mock_mkdir, mock_replace, mock_open_vz):
+    @patch("pipeline.generate_parquet.s3fs.S3FileSystem")
+    def test_generate_reference_success(self, mock_s3fs, mock_mkdir, mock_replace, mock_open_vz, mock_xr_open):
         """Test successful generation of a reference with mocks."""
         # Setup mock Virtual Dataset context manager
         mock_vds = MagicMock()
-        mock_open_vz.return_value.__enter__.return_value = mock_vds
+        mock_open_vz.return_value = mock_vds
         
+        mock_dataset = MagicMock()
+        mock_dataset.variables = {}
+        mock_xr_open.return_value = mock_dataset
+
         registry = MagicMock(spec=ObjectStoreRegistry) if ObjectStoreRegistry else MagicMock()
+
+        access_key= "test-access-key"
+        secret_key= "test-secret-key"
+
         
         result = generate_reference_for_object(
             key="test/data.nc",
             bucket="my-bucket",
+            access_key=access_key,
+            secret_key=secret_key,
+            s3_config=self.kp["s3"],
             registry=registry,
             staging_volume_path="staging",
             temp_path="temp",
