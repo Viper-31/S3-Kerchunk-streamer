@@ -78,7 +78,7 @@ def select_parser(fs: s3fs.S3FileSystem, bucket: str, key: str) -> tuple[HDFPars
     parser = HDFParser(drop_variables=string_vars) if string_vars else HDFParser()
     return parser, string_vars
 
-"""Append dropped string variables to vds (Will take a while over network)"""
+"""Append dropped string dimensions to vds (Will take a while over network)"""
 def enrich_string_variables(
     *,
     vds: Any,
@@ -307,8 +307,8 @@ def concurrent_dask_ref_generation(
     staging_volume_path = out_cfg["staging_volume_path"]
     temp_path = out_cfg["temp_path"]
 
-    record_size = int(exec_cfg.get("parquet_record_size", 100000))
-    categorical_threshold = int(exec_cfg.get("parquet_categorical_threshold", 10))
+    record_size = exec_cfg["parquet_record_size"]
+    categorical_threshold = exec_cfg["categorical_threshold"]
 
     keys = _keys_to_generate(inventory_diff)
     deleted_keys = sorted(inventory_diff.get("deleted", []))
