@@ -1,8 +1,7 @@
 import os
 from pathlib import Path
 import warnings
-import dask
-from dask.distributed import Client, LocalCluster
+from dask.distributed import Client, LocalCluster, as_completed
 import xarray as xr
 
 SCRATCH = Path(os.environ.get("MYSCRATCH", "/tmp"))
@@ -49,21 +48,18 @@ def process_file(in_path, dataset_type):
     out_path = data_out_dir / rel_path
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"Processing {dataset_type}: {in_path} -> {out_path}")
-    
     try:
-        ds = xr.open_dataset(in_path, engine="h5netcdf")
-        ds = ds.chunk(spec["chunks"])
-        encoding = build_var_encoding(ds, spec["chunks"], complevel=spec["complevel"])
-       
-        write_job = ds.to_netcdf(
-            path=out_path,
-            engine="h5netcdf",
-            format="NETCDF4",
-            encoding=encoding,
-            compute=False
-        )
-        return write_job
+        with xr.open_dataset(in_path, engine="h5netcdf") as ds:
+            ds = ds.chunk(spec["chunks"])
+            encoding = build_var_encoding(ds, spec["chunks"], complevel=spec["complevel"])
+        
+            ds.to_netcdf(
+                path=out_path,
+                engine="h5netcdf",
+                format="NETCDF4",
+                encoding=encoding
+            )
+        return f"Completed: {in_path} -> {out_path}"
     except Exception as e:
         print(f"Error preparing {in_path}: {e}")
         return None
@@ -71,37 +67,42 @@ def process_file(in_path, dataset_type):
 def main():
     data_out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Initialize Dask LocalCluster for Setonix Node (128 cores)
+    # Initialize Dask LocalCluster for Setonix Node (180GB/24 workers= 11.25GB per worker)
     cluster = LocalCluster(
-        n_workers=128, 
-        threads_per_worker=1,
-        memory_limit='auto'
+        n_workers=24, 
+        threads_per_worker=1, # n_workers x threads_per_worker = SBATCH cpus
+        memory_limit="8GB",
+        dashboard_address=":8787"
     )
     client = Client(cluster)
     print(f"Dask Dashboard available at: {client.dashboard_link}")
 
-    tasks = []
+    all_files=[]
+    all_ds_types=[]
     
     dpird_files = list(data_in_dir.glob(config["dpird"]["pattern"]))
     for f in dpird_files:
-        tasks.append(process_file(f, "dpird"))
+        all_files.append(f)
+        all_ds_types.append("dpird")
         
     ecmwf_files = list(data_in_dir.glob(config["ecmwf"]["pattern"]))
     for f in ecmwf_files:
-        tasks.append(process_file(f, "ecmwf"))
+        all_files.append(f)
+        all_ds_types.append("ecmwf")
 
-    tasks = [t for t in tasks if t is not None]
-
-    if not tasks:
+    if not all_files:
         print("No files found to process. Check $MYSCRATCH/acacia_clean_data")
+        client.close()
+        cluster.close()
         return
 
-    print(f"Executing {len(tasks)} transformation tasks across {len(client.scheduler_info()['workers'])} workers...")
+    print(f"Submitting {len(all_files)} tasks across {len(client.scheduler_info()['workers'])} workers on cluster ...")
     
-    #Execute in parallel
-    dask.compute(*tasks)
+    futures= client.map(process_file,all_files,all_ds_types)
     
-    print("All transformations complete.")
+    for future in as_completed(futures):
+        print(future.result())
+
     client.close()
     cluster.close()
 
