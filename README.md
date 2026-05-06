@@ -19,7 +19,7 @@ This pipeline enables efficient, cloud-optimized access to large historical weat
 - `pipeline/inventory.py`: Logic for scanning S3, building inventory snapshots, and performing incremental diffing.
 - `pipeline/generate_parquet.py`: Concurrent generation of Kerchunk Parquet references using `VirtualiZarr` and `Dask`.
 - `utils/config_utils.py`: Runtime readiness checks, configuration loading, and local secret resolution.
-- `requirements.txt`: Python dependencies including `kerchunk`, `virtualizarr`, `s3fs`, `xarray`, and `dask`.
+- `requirements.txt`: Python dependencies including `kerchunk`, `virtualizarr`, `obstore`, `xarray`, and `dask`.
 
 ## Getting Started
 
