@@ -67,35 +67,38 @@ def process_file(in_path, dataset_type):
 def main():
     data_out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Initialize Dask LocalCluster for Setonix Node (180GB/16 workers= 11.25GB per worker)
+    # Initialize Dask LocalCluster for Setonix Node (180GB/24 workers= 11.25GB per worker)
     cluster = LocalCluster(
-        n_workers=32, 
+        n_workers=24, 
         threads_per_worker=1, # n_workers x threads_per_worker = SBATCH cpus
-        memory_limit="11GB",
+        memory_limit="8GB",
         dashboard_address=":8787"
     )
     client = Client(cluster)
     print(f"Dask Dashboard available at: {client.dashboard_link}")
 
-    task_args = []
+    all_files=[]
+    all_ds_types=[]
     
     dpird_files = list(data_in_dir.glob(config["dpird"]["pattern"]))
     for f in dpird_files:
-        task_args.append((f, "dpird"))
+        all_files.append(f)
+        all_ds_types.append("dpird")
         
     ecmwf_files = list(data_in_dir.glob(config["ecmwf"]["pattern"]))
     for f in ecmwf_files:
-        task_args.append((f, "ecmwf"))
+        all_files.append(f)
+        all_ds_types.append("ecmwf")
 
-    if not task_args:
+    if not all_files:
         print("No files found to process. Check $MYSCRATCH/acacia_clean_data")
         client.close()
         cluster.close()
         return
 
-    print(f"Submitting {len(task_args)} tasks across {len(client.scheduler_info()['workers'])} workers on cluster ...")
+    print(f"Submitting {len(all_files)} tasks across {len(client.scheduler_info()['workers'])} workers on cluster ...")
     
-    futures= client.map(lambda x: process_file(*x), task_args)
+    futures= client.map(process_file,all_files,all_ds_types)
     
     for future in as_completed(futures):
         print(future.result())
