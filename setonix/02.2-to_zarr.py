@@ -1,4 +1,5 @@
 import os
+import argparse
 from pathlib import Path
 
 import xarray as xr
@@ -29,6 +30,14 @@ encoding_specs = {
 
 compressor= Blosc(cname="zstd", clevel= 5, shuffle=-1)
 
+"""--dry-run flag for testability"""
+def parse_args():
+    parser= argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action= "store_true", help= "Limit ECMWF to one file and write to seperate .zarr store")
+    
+    parser.add_argument("--ecmwf-one-file", type=str, default=None, help= "Path to a specfic ECMWF file for dry-run")
+    return parser.parse_args()
+
 """Builds per variable Zarr V3 encoding. Uses the respective chunk/shard mapping for each ds"""
 def build_var_encoding(ds: xr.Dataset, chunk_dict: dict, shard_dict: dict, fill_value):
     enc= {}
@@ -45,12 +54,12 @@ def build_var_encoding(ds: xr.Dataset, chunk_dict: dict, shard_dict: dict, fill_
         }
     return enc
 
-def dpird_to_zarr():
+def dpird_to_zarr(dry_run: bool = False):
     if not dpird_staged_path.exists():
         raise FileNotFoundError(f"02.1-chunk_n_compress.sh should have ran to produce: {dpird_staged_path}")
     
     spec= encoding_specs["dpird"]
-    out_path= zarr_out_dir / "dpird.zarr"
+    out_path= zarr_out_dir / ("dpird_dryrun.zarr" if dry_run else "dpird.zarr")
 
     with xr.open_dataset(dpird_staged_path, engine="h5netcdf") as ds:
         encoding = build_var_encoding(
@@ -61,15 +70,22 @@ def dpird_to_zarr():
         )
         ds.to_zarr(out_path, zarr_format=3, encoding=encoding, mode="w")
 
-def ecmwf_to_zarr():
+def ecmwf_to_zarr(ecmwf_one_file:str | None = None, dry_run: bool = False):
     spec = encoding_specs["ecmwf"]
     pattern = spec["pattern"]
-    ecmwf_files = sorted(ecmwf_dir.glob(pattern))
+
+    if ecmwf_one_file:
+        ecmwf_files= [Path(ecmwf_one_file)]
+    else:
+        ecmwf_files= sorted(ecmwf_dir.glob(pattern))
 
     if not ecmwf_files:
         raise FileNotFoundError(f"No ECMWF files found at {ecmwf_dir} with pattern {pattern}")
+    
+    if dry_run and len(ecmwf_files)>1:
+        ecmwf_files=[ecmwf_files[0]]
 
-    out_path = zarr_out_dir / "ecmwf.zarr"
+    out_path = zarr_out_dir / ("ecmwf_dryrun.zarr" if dry_run else "ecmwf.zarr")
 
     with xr.open_mfdataset(
         ecmwf_files,
@@ -91,14 +107,15 @@ def ecmwf_to_zarr():
         ds.to_zarr(out_path, zarr_format=3, encoding=encoding, mode="w")
 
 def main():
+    args= parse_args()
     zarr_out_dir.mkdir(parents=True, exist_ok=True)
 
     print("Starting DPIRD -> Zarr")
-    dpird_to_zarr()
+    dpird_to_zarr(dry_run=args.dry_run)
     print("DPIRD complete")
 
     print("Starting ECMWF -> Zarr")
-    ecmwf_to_zarr()
+    ecmwf_to_zarr(ecmwf_one_file=args.ecmwf_one_file, dry_run=args.dry_run)
     print("ECMWF complete")
 
 if __name__ == "__main__":
