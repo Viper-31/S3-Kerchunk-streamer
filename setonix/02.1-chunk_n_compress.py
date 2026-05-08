@@ -32,7 +32,8 @@ warnings.filterwarnings(
 def build_var_encoding(ds, chunk_dict, complevel=5):
     enc = {}
     for v in ds.data_vars:
-        var_chunks = tuple(chunk_dict.get(dim, ds[v].sizes[dim]) for dim in ds[v].dims)
+        var_dims= ds[v].dims
+        var_chunks = tuple(chunk_dict.get(dim, ds[v].sizes[dim]) for dim in var_dims)
         enc[v] = {
             "zlib": True,
             "complevel": complevel,
