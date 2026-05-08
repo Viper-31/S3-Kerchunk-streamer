@@ -1,11 +1,12 @@
 import os
 import argparse
 from pathlib import Path
+import warnings
 
 import xarray as xr
 import numpy as np
-from numcodecs import Blosc
 from dask.distributed import Client, LocalCluster, as_completed
+from zarr.codecs import Blosc
 
 SCRATCH = Path(os.environ.get("MYSCRATCH", "/tmp"))
 dpird_staged_path = SCRATCH / "vz_kerchunk" / "DPIRD" / "DPIRD_final_stations.nc"
@@ -28,14 +29,19 @@ encoding_specs = {
     },
 }
 
-compressor= Blosc(cname="zstd", clevel= 5, shuffle=-1)
+warnings.filterwarnings(
+    "ignore",
+    message="Numcodecs codecs are not in the Zarr version 3 specification*",
+    category=UserWarning
+)
 
-"""--dry-run flag for testability"""
+compressors= (Blosc(cname="zstd", clevel= 5, shuffle= 1))
+
+"""--dry-run flag gets the first 8 ecmwf files to build 1 shard"""
 def parse_args():
     parser= argparse.ArgumentParser()
-    parser.add_argument("--dry-run", action= "store_true", help= "Limit ECMWF to one file and write to seperate .zarr store")
+    parser.add_argument("--dry-run", action= "store_true", help= "Limit ECMWF to 10 .nc sample and write to seperate .zarr store")
     
-    parser.add_argument("--ecmwf-one-file", type=str, default=None, help= "Path to a specfic ECMWF file for dry-run")
     return parser.parse_args()
 
 """Builds per variable Zarr V3 encoding. Uses the respective chunk/shard mapping for each ds"""
@@ -49,7 +55,7 @@ def build_var_encoding(ds: xr.Dataset, chunk_dict: dict, shard_dict: dict, fill_
         enc[var] = {
             "chunks": var_chunks,
             "shards": var_shards,
-            "compressor": compressor,
+            "compressors": compressors,
             "fill_value": fill_value,
         }
     return enc
@@ -70,20 +76,16 @@ def dpird_to_zarr(dry_run: bool = False):
         )
         ds.to_zarr(out_path, zarr_format=3, encoding=encoding, mode="w")
 
-def ecmwf_to_zarr(ecmwf_one_file:str | None = None, dry_run: bool = False):
+def ecmwf_to_zarr(dry_run: bool = False):
     spec = encoding_specs["ecmwf"]
     pattern = spec["pattern"]
+    ecmwf_files= sorted(ecmwf_dir.glob(pattern))
 
-    if ecmwf_one_file:
-        ecmwf_files= [Path(ecmwf_one_file)]
-    else:
-        ecmwf_files= sorted(ecmwf_dir.glob(pattern))
-
-    if not ecmwf_files:
-        raise FileNotFoundError(f"No ECMWF files found at {ecmwf_dir} with pattern {pattern}")
+    if not ecmwf_files or len(ecmwf_files)<=1:
+        raise FileNotFoundError(f"Not enough ECMWF files found at {ecmwf_dir} with pattern {pattern}")
     
-    if dry_run and len(ecmwf_files)>1:
-        ecmwf_files=[ecmwf_files[0]]
+    if dry_run:
+        ecmwf_files=[ecmwf_files[9]]     
 
     out_path = zarr_out_dir / ("ecmwf_dryrun.zarr" if dry_run else "ecmwf.zarr")
 
@@ -94,9 +96,10 @@ def ecmwf_to_zarr(ecmwf_one_file:str | None = None, dry_run: bool = False):
         parallel=True,
         engine="h5netcdf",
     ) as ds:
-        # Rechunk after load to above specified (6, 26, 111, 151) chunking
-        ds = ds.chunk(spec["chunks"])
+        # On disk chunk must match (120, 113, 111, 151) shard boundaries
+        ds = ds.chunk(spec["shards"])
 
+        # chunk_dict in encoding will tell Zarr V3 to write specified chunks inside shards
         encoding = build_var_encoding(
             ds,
             chunk_dict=spec["chunks"],
@@ -115,7 +118,7 @@ def main():
     print("DPIRD complete")
 
     print("Starting ECMWF -> Zarr")
-    ecmwf_to_zarr(ecmwf_one_file=args.ecmwf_one_file, dry_run=args.dry_run)
+    ecmwf_to_zarr(dry_run=args.dry_run)
     print("ECMWF complete")
 
 if __name__ == "__main__":
