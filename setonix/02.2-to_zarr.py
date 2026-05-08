@@ -73,7 +73,7 @@ def dpird_to_zarr(dry_run: bool = False):
             shard_dict=spec["shards"],
             fill_value=spec["fill_value"],
         )
-        ds.to_zarr(out_path, zarr_format=3, encoding=encoding, mode="w")
+        ds.to_zarr(out_path, zarr_format=3, encoding=encoding, mode="w", consolidated=False)
 
 def ecmwf_to_zarr(dry_run: bool = False):
     spec = encoding_specs["ecmwf"]
@@ -106,7 +106,7 @@ def ecmwf_to_zarr(dry_run: bool = False):
             fill_value=spec["fill_value"],
         )
 
-        ds.to_zarr(out_path, zarr_format=3, encoding=encoding, mode="w")
+        ds.to_zarr(out_path, zarr_format=3, encoding=encoding, mode="w", consolidated=False)
 
 def main():
     args= parse_args()
