@@ -15,6 +15,6 @@ source zarr_venv/bin/activate
 
 echo "Starting to Zarr conversion at $(date)"
 
-python -u scripts/02.2_to_zarr.py
+python -u scripts/02.2-to_zarr.py
 
 echo "Finished at $(date)"
