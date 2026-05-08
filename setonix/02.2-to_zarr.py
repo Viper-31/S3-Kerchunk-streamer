@@ -5,7 +5,6 @@ import warnings
 
 import xarray as xr
 import numpy as np
-from dask.distributed import Client, LocalCluster, as_completed
 from zarr.codecs import Blosc
 
 SCRATCH = Path(os.environ.get("MYSCRATCH", "/tmp"))

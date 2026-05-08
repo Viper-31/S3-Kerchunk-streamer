@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=to_zarr
-#SBATCH --partition=highmem
+#SBATCH --partition=work
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=64
-#SBATCH --mem=500G
-#SBATCH --time=04:00:00
+#SBATCH --cpus-per-task=24
+#SBATCH --mem=200G
+#SBATCH --time=02:00:00
 #SBATCH --output=to_zarr_%j.log
 #SBATCH --error=to_zarr_%j.err
 
