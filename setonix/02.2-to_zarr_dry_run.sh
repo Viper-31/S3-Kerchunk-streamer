@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=50G
-#SBATCH --time=04:00:00
+#SBATCH --time=01:00:00
 #SBATCH --output=to_zarr_dry_run_%j.log
 #SBATCH --error=to_zarr_dry_run_%j.err
 
