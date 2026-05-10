@@ -1,8 +1,15 @@
 import os
 from pathlib import Path
 import xarray as xr
+import warnings
 
 def main():
+    warnings.filterwarnings(
+    "ignore",
+    message="*Numcodecs codecs are not in the Zarr version 3 specification*",
+    category=UserWarning
+)
+    
     # Set up paths relative to MYSCRATCH
     SCRATCH = Path(os.environ.get("MYSCRATCH", "/tmp"))
     

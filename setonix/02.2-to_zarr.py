@@ -21,8 +21,8 @@ encoding_specs = {
         "pattern": None,
     },
     "ecmwf": {
-        "chunks": {"time": 6, "step": 26, "latitude": 111, "longitude": 151},
-        "shards": {"time": 120, "step": 156, "latitude": 111, "longitude": 151},
+        "chunks": {"time": 6, "step": 25, "latitude": 111, "longitude": 151},
+        "shards": {"time": 120, "step": 113, "latitude": 111, "longitude": 151},
         "fill_value": np.float32(np.nan),
         "pattern": "**/*.nc",
     },
@@ -30,11 +30,11 @@ encoding_specs = {
 
 warnings.filterwarnings(
     "ignore",
-    message="Numcodecs codecs are not in the Zarr version 3 specification*",
+    message="*Numcodecs codecs are not in the Zarr version 3 specification*",
     category=UserWarning
 )
 
-compressors= (Blosc(cname="zstd", clevel= 5, shuffle= 1))
+compressors= [Blosc(cname="zstd", clevel= 5, shuffle= 1)]
 
 """--dry-run flag gets the first 8 ecmwf files to build 1 shard"""
 def parse_args():
