@@ -30,8 +30,7 @@ encoding_specs = {
 
 warnings.filterwarnings(
     "ignore",
-    message="*Numcodecs codecs are not in the Zarr version 3 specification*",
-    category=UserWarning
+    message="*Numcodecs codecs are not in the Zarr version 3 specification*"
 )
 
 compressors= [Blosc(cname="zstd", clevel= 5, shuffle= 1)]
