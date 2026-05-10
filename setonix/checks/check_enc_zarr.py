@@ -6,7 +6,7 @@ import warnings
 def main():
     warnings.filterwarnings(
     "ignore",
-    message="*Numcodecs codecs are not in the Zarr version 3 specification*"
+    message=".*Numcodecs codecs are not in the Zarr version 3 specification.*"
 )
     
     # Set up paths relative to MYSCRATCH
