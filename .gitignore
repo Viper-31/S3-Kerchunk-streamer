@@ -1,17 +1,33 @@
-*dataset*
+# Environments
 .env
-.tmp
 *venv*
-*.vscode
+env
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Tmp datasets
+*dataset*
+temp*
+.tmp
 *.nc
-config
-.github/
-logs/
+
+# VSCode
+*.vscode
+
+# Cache
+.pytest_cache/
 .DS_Store
 __pycache__/
 .ipynb_checkpoints/
-.env
-temp*
+
+# Misc
+.github/
+logs/
 .databricks
 *databricks.yml
 .databricks
