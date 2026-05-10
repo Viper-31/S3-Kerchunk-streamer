@@ -10,12 +10,12 @@ kerchunk_pipeline:
       enabled: true
       mode: "prefix_regex"
       prefix: "ecmwf_op_clean/"
-      key_regex: "^ecmwf_op_clean/[0-9]{4}/[0-9]{2}/[0-9]{2}\\.nc$"
+      key_regex: "^ECMWF/[0-9]{4}/[0-9]{2}/[0-9]{2}\\.nc$"
 
     - id: "dpird_final_singleton"
       enabled: true
       mode: "exact_key"
-      exact_key: "FINAL_DPIRD/DPIRD_final_stations.nc"
+      exact_key: "DPIRD/DPIRD_stations_2022_2025.nc"
 
   output:
     staging_volume_path: "acacia_refs_staging"
