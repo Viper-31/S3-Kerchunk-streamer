@@ -21,7 +21,7 @@ encoding_specs = {
         "pattern": None,
     },
     "ecmwf": {
-        "chunks": {"time": 6, "step": 25, "latitude": 111, "longitude": 151},
+        "chunks": {"time": 6, "step": 113, "latitude": 37, "longitude": 151},
         "shards": {"time": 120, "step": 113, "latitude": 111, "longitude": 151},
         "fill_value": np.float32(np.nan),
         "pattern": "**/*.nc",
