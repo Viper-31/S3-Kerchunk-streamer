@@ -337,7 +337,7 @@ def concurrent_dask_ref_generation(
 
     raw_workers= exec_cfg.get("max_workers")
     workers_number= _resolve_workers(raw_workers)
-    client= Client(n_workers=workers_number,threads_per_worker=1)
+    client= Client(n_workers=workers_number,threads_per_worker=2)
     tasks= []
     for key in keys:
         task= dask.delayed(generate_reference_for_object) (

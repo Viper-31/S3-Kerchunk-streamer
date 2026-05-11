@@ -2,6 +2,7 @@ import pickle
 import traceback
 import unittest
 import tempfile
+import pytest
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -69,19 +70,20 @@ class TestKerchunkPipeline(unittest.TestCase):
         config_record_size = self.kp["execution"]["parquet_record_size"]
         config_cat_threshold = self.kp["execution"]["categorical_threshold"]
 
-        generate_reference_for_object(
-            key="test/data.nc",
-            bucket=self.kp["s3"]["bucket"],
-            access_key="ak",
-            secret_key="sk",
-            s3_config=self.kp["s3"],
-            registry=MagicMock(),
-            staging_volume_path=self.kp["output"]["staging_volume_path"],
-            temp_path=self.kp["output"]["temp_path"],
-            current_objects={"test/data.nc": {"flow_id": "flow1"}},
-            record_size=config_record_size,
-            categorical_threshold=config_cat_threshold,
-        )
+        with tempfile.TemporaryDirectory() as td:
+            generate_reference_for_object(
+                key="test/data.nc",
+                bucket=self.kp["s3"]["bucket"],
+                access_key="ak",
+                secret_key="sk",
+                s3_config=self.kp["s3"],
+                registry=MagicMock(),
+                staging_volume_path=str(Path(td) / "staging"),
+                temp_path=str(Path(td) / "temp"),
+                current_objects={"test/data.nc": {"flow_id": "flow1"}},
+                record_size=config_record_size,
+                categorical_threshold=config_cat_threshold,
+            )
 
         # Verify that generate_reference_for_object passes config values down
         mock_build_vds.assert_called_once()
@@ -89,10 +91,11 @@ class TestKerchunkPipeline(unittest.TestCase):
         self.assertEqual(kwargs["record_size"], config_record_size)
         self.assertEqual(kwargs["categorical_threshold"], config_cat_threshold)
 
+    @pytest.mark.integration
     def test_object_store_registry_pickling(self):
         """
         Pickling: Serialising an object by converting it into byte stream to be sent over network/different processses.
-        Test that ObjectStoreRegistry containing obstore objects handles pickling correctly.
+        Integration test: ObjectStoreRegistry containing obstore objects handles pickling correctly.
         """
         if ObjectStoreRegistry is None or S3Store is None:
             self.skipTest("obspec_utils or obstore not installed")
@@ -149,7 +152,7 @@ class TestKerchunkPipeline(unittest.TestCase):
         self.assertEqual(reference_relpath_for_key(key), expected)
 
     def test_build_reference_paths(self):
-        """Path seam: stable mapping from source key to final/tmp parquet paths."""
+        """Path unit test: stable mapping from source key to final/tmp parquet paths."""
         key = "ecmwf_op_clean/2024/02/06.nc"
         paths = build_reference_paths(
             key=key,
@@ -167,7 +170,7 @@ class TestKerchunkPipeline(unittest.TestCase):
         )
 
     def test_remove_tmpfile_for_existing_file(self):
-        """Path seam: pre-existing temp parquet file is removed before generation."""
+        """Path unit test: pre-existing temp parquet file is removed before generation."""
         with tempfile.TemporaryDirectory() as td:
             tmp_ref_path = Path(td) / "tmp" / "a.tmp.parquet"
             tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
@@ -178,7 +181,7 @@ class TestKerchunkPipeline(unittest.TestCase):
             self.assertFalse(tmp_ref_path.exists())
 
     def test_remove_tmpdir_for_existing_dir(self):
-        """Path seam: pre-existing temp directory at target is removed safely."""
+        """Path unit test: pre-existing temp directory at target is removed safely."""
         with tempfile.TemporaryDirectory() as td:
             tmp_ref_path = Path(td) / "tmp" / "a.tmp.parquet"
             tmp_ref_path.mkdir(parents=True, exist_ok=True)
@@ -192,7 +195,7 @@ class TestKerchunkPipeline(unittest.TestCase):
     @patch("pipeline.generate_parquet.HDFParser")
     @patch("pipeline.generate_parquet.xr.open_dataset")
     def test_string_var_select_parser(self, mock_xr_open, mock_hdf_parser):
-        """Parser seam: detect string-like variables and pass them to drop_variables."""
+        """Parser unit test: detect string-like variables and pass them to drop_variables."""
 
         class _DType:
             def __init__(self, kind: str):
@@ -259,7 +262,7 @@ class TestKerchunkPipeline(unittest.TestCase):
 
     @patch("pipeline.generate_parquet.xr.open_dataset")
     def test_enrich_string_variables(self, mock_xr_open):
-        """Enrichment seam: no string vars means no reopen or coord assignment."""
+        """Test string enrichment: no string vars means no reopen or coord assignment."""
         vds = MagicMock()
         fs = MagicMock()
 
@@ -275,6 +278,7 @@ class TestKerchunkPipeline(unittest.TestCase):
         fs.open.assert_not_called()
         mock_xr_open.assert_not_called()
 
+    @pytest.mark.integration
     @patch("pipeline.generate_parquet.enrich_string_variables")
     @patch("pipeline.generate_parquet.vz.open_virtual_dataset")
     def test_build_vds_to_parq_reference(
@@ -282,7 +286,7 @@ class TestKerchunkPipeline(unittest.TestCase):
         mock_open_vz,
         mock_enrich,
     ):
-        """Combined seam: open virtual dataset, enrich, and write parquet reference."""
+        """Integration test: Combine open virtual dataset, enrich, and write parquet reference."""
         raw_vds = MagicMock()
         enriched_vds = MagicMock()
         mock_open_vz.return_value = raw_vds
@@ -293,6 +297,9 @@ class TestKerchunkPipeline(unittest.TestCase):
         registry = MagicMock()
         fs = MagicMock()
 
+        record_size = self.kp["execution"]["parquet_record_size"]
+        cat_thresh = self.kp["execution"]["categorical_threshold"]
+
         build_vds_to_reference(
             source_url="s3://weather/x.nc",
             registry=registry,
@@ -302,8 +309,8 @@ class TestKerchunkPipeline(unittest.TestCase):
             key="x.nc",
             string_vars=["station_name"],
             tmp_ref_path=tmp_ref_path,
-            record_size=100000,
-            categorical_threshold=10,
+            record_size=record_size,
+            categorical_threshold=cat_thresh,
         )
 
         mock_open_vz.assert_called_once_with(
@@ -322,8 +329,8 @@ class TestKerchunkPipeline(unittest.TestCase):
         enriched_vds.vz.to_kerchunk.assert_called_once_with(
             filepath=str(tmp_ref_path),
             format="parquet",
-            record_size=100000,
-            categorical_threshold=10,
+            record_size=record_size,
+            categorical_threshold=cat_thresh,
         )
 
     @patch("pipeline.generate_parquet.build_vds_to_reference")
@@ -337,25 +344,29 @@ class TestKerchunkPipeline(unittest.TestCase):
         mock_select_parser,
         mock_build_vds,
     ):
-        """Orchestrator seam: generate_reference_for_object delegates to extracted units."""
+        """Orchestrator unit test: generate_reference_for_object delegates to extracted units."""
         parser = MagicMock()
         mock_select_parser.return_value = (parser, ["station_name"])
 
         registry = MagicMock(spec=ObjectStoreRegistry) if ObjectStoreRegistry else MagicMock()
 
-        result = generate_reference_for_object(
-            key="test/data.nc",
-            bucket="my-bucket",
-            access_key="ak",
-            secret_key="sk",
-            s3_config={"endpoint_url": "https://projects.pawsey.org.au"},
-            registry=registry,
-            staging_volume_path="staging",
-            temp_path="temp",
-            current_objects={"test/data.nc": {"flow_id": "flow1"}},
-            record_size=100,
-            categorical_threshold=10,
-        )
+        record_size = self.kp["execution"]["parquet_record_size"]
+        cat_thresh = self.kp["execution"]["categorical_threshold"]
+
+        with tempfile.TemporaryDirectory() as td:
+            result = generate_reference_for_object(
+                key="test/data.nc",
+                bucket="my-bucket",
+                access_key="ak",
+                secret_key="sk",
+                s3_config={"endpoint_url": "https://projects.pawsey.org.au"},
+                registry=registry,
+                staging_volume_path=str(Path(td) / "staging"),
+                temp_path=str(Path(td) / "temp"),
+                current_objects={"test/data.nc": {"flow_id": "flow1"}},
+                record_size=record_size,
+                categorical_threshold=cat_thresh,
+            )
 
         self.assertEqual(result["status"], "generated")
         self.assertEqual(result["key"], "test/data.nc")
@@ -480,23 +491,23 @@ class TestKerchunkPipeline(unittest.TestCase):
 
         registry = MagicMock(spec=ObjectStoreRegistry) if ObjectStoreRegistry else MagicMock()
 
-        access_key= "test-access-key"
-        secret_key= "test-secret-key"
+        record_size = self.kp["execution"]["parquet_record_size"]
+        cat_thresh = self.kp["execution"]["categorical_threshold"]
 
-        
-        result = generate_reference_for_object(
-            key="test/data.nc",
-            bucket="my-bucket",
-            access_key=access_key,
-            secret_key=secret_key,
-            s3_config=self.kp["s3"],
-            registry=registry,
-            staging_volume_path="staging",
-            temp_path="temp",
-            current_objects={"test/data.nc": {"flow_id": "flow1"}},
-            record_size=100,
-            categorical_threshold=10
-        )
+        with tempfile.TemporaryDirectory() as td:
+            result = generate_reference_for_object(
+                key="test/data.nc",
+                bucket="my-bucket",
+                access_key="test-access-key",
+                secret_key="test-secret-key",
+                s3_config=self.kp["s3"],
+                registry=registry,
+                staging_volume_path=str(Path(td) / "staging"),
+                temp_path=str(Path(td) / "temp"),
+                current_objects={"test/data.nc": {"flow_id": "flow1"}},
+                record_size=record_size,
+                categorical_threshold=cat_thresh
+            )
         
         self.assertEqual(result["status"], "generated")
         self.assertEqual(result["key"], "test/data.nc")
