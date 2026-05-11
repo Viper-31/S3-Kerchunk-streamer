@@ -57,6 +57,37 @@ class TestKerchunkPipeline(unittest.TestCase):
                 "source_flows": [],
                 "execution": {"max_workers": "auto"}
             }
+    
+    @patch("pipeline.generate_parquet.build_vds_to_reference")
+    @patch("pipeline.generate_parquet.select_parser")
+    @patch("pipeline.generate_parquet.commit_reference")
+    def test_config_propagation_to_generation(self, mock_commit, mock_select_parser, mock_build_vds):
+        """Test that execution configuration parameters map correctly from config.yaml to generation."""
+        mock_select_parser.return_value = (MagicMock(), [])
+
+        # Pull values directly from the loaded config.yaml setup in setUpClass
+        config_record_size = self.kp["execution"]["parquet_record_size"]
+        config_cat_threshold = self.kp["execution"]["categorical_threshold"]
+
+        generate_reference_for_object(
+            key="test/data.nc",
+            bucket=self.kp["s3"]["bucket"],
+            access_key="ak",
+            secret_key="sk",
+            s3_config=self.kp["s3"],
+            registry=MagicMock(),
+            staging_volume_path=self.kp["output"]["staging_volume_path"],
+            temp_path=self.kp["output"]["temp_path"],
+            current_objects={"test/data.nc": {"flow_id": "flow1"}},
+            record_size=config_record_size,
+            categorical_threshold=config_cat_threshold,
+        )
+
+        # Verify that generate_reference_for_object passes config values down
+        mock_build_vds.assert_called_once()
+        _, kwargs= mock_build_vds.call_args
+        self.assertEqual(kwargs["record_size"], config_record_size)
+        self.assertEqual(kwargs["categorical_threshold"], config_cat_threshold)
 
     def test_object_store_registry_pickling(self):
         """
@@ -371,6 +402,7 @@ class TestKerchunkPipeline(unittest.TestCase):
         previous = {
             "old.nc": {"etag": "e1", "last_modified": "t1", "size": 100},
             "changed.nc": {"etag": "e2", "last_modified": "t2", "size": 200},
+            "deleted.nc": {"etag": "e3", "last_modified": "t3", "size": 300}
         }
         current = {
             "old.nc": {"etag": "e1", "last_modified": "t1", "size": 100},
@@ -380,6 +412,8 @@ class TestKerchunkPipeline(unittest.TestCase):
         diff = diff_inventory(previous, current)
         self.assertEqual(diff["new"], ["new.nc"])
         self.assertEqual(diff["changed"], ["changed.nc"])
+        self.assertEqual(diff["deleted"], ["deleted.nc"])
+        self.assertEqual(diff["unchanged"], ["old.nc"])
 
     def test_compute_snapshot_artifacts_builds_expected_diff_and_counts(self):
         """Pure transform: verify inventory diff and summary counts are correct."""
