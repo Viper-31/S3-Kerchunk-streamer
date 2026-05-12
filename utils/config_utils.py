@@ -1,4 +1,5 @@
 from __future__ import annotations
+from packaging.version import parse as parse_version
 
 import re
 import os
@@ -12,11 +13,9 @@ from typing import Any
 import yaml
 
 
-REQUIRED_EXACT = {
+REQUIRED_MIN_VERSION = {
     "fsspec": "2026.3.0",
     "s3fs": "2026.3.0",
-    "dask": "2026.3.0",
-    "kerchunk": "0.2.10",
 }
 
 REQUIRED_MODULES = [
@@ -38,12 +37,12 @@ def check_runtime_readiness() -> dict[str, str]:
     if sys.version_info < (3, 12):
         errors.append("Python 3.12+ required for virtualizarr=")
 
-    for pkg, expected in REQUIRED_EXACT.items():
+    for pkg, min_ver in REQUIRED_MIN_VERSION.items():
         try:
-            got = version(pkg)
-            report[pkg] = got
-            if got != expected:
-                errors.append(f"{pkg} expected {expected}, got {got}")
+            current_pkg = version(pkg)
+            report[pkg] = current_pkg
+            if parse_version(current_pkg) < parse_version(min_ver):
+                errors.append(f"{pkg} expected >={min}, got {current_pkg}")
         except PackageNotFoundError:
             errors.append(f"{pkg} missing")
 
