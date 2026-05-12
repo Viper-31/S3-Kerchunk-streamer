@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import fnmatch
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
@@ -97,8 +98,41 @@ def load_ledger(ledger_path: str) -> dict[str, Any]:
     
     return payload
 
+"""Yield NetCDF objects matching glob flow selectors"""
+def _iter_prefix_glob_objects(
+        s3_client: Any,
+        bucket: str,
+        flow: dict[str, Any],
+        page_size: int,
+):
+    flow_id = flow["id"]
+    prefix = flow["prefix"]
+    pattern = flow["key_glob"]
+
+    paginator = s3_client.get_paginator("list_objects_v2")
+    pages = paginator.paginate(
+        Bucket=bucket,
+        Prefix=prefix,
+        PaginationConfig={"PageSize": page_size},
+    )
+
+    for page in pages:
+        for obj in page.get("Contents", []):
+            key= obj["Key"]
+            if not key.endswith(".nc"):
+                continue
+            if not fnmatch.fnmatchcase(key, pattern):
+                continue
+            yield ObjectRecord(
+                key=key,
+                etag=_normalise_etag(obj.get("ETag")),
+                last_modified=_to_iso_utc(obj.get("LastModified")),
+                size=int(obj.get("Size", 0)),
+                flow_id=flow_id,
+            )
+
 """
-Yield NetCDF objects matching prefix + regex flow selectors.
+Yield NetCDF objects matching regex flow selectors.
 """
 def _iter_prefix_regex_objects(
         s3_client: Any,
@@ -169,6 +203,8 @@ def scan_inventory(kp: dict[str, Any], s3_client: Any) -> dict[str, dict[str, An
         mode = flow["mode"]
         if mode == "prefix_regex":
             iterator = _iter_prefix_regex_objects(s3_client, bucket, flow, page_size)
+        elif mode== "prefix_glob":
+            iterator= _iter_prefix_glob_objects(s3_client, bucket, flow, page_size)
         elif mode == "exact_key":
             iterator = _iter_exact_key_object(s3_client, bucket, flow)
         else:
