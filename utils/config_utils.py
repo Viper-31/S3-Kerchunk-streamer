@@ -93,7 +93,7 @@ def validate_pipeline_schema(kp: dict[str, Any]) -> None:
             raise ValueError(f"source_flows[{idx}].id is required")
 
         mode = flow.get("mode")
-        if mode not in {"prefix_regex", "exact_key"}:
+        if mode not in {"prefix_regex", "prefix_glob", "exact_key"}:
             raise ValueError(f"source_flows[{idx}] has unsupported mode: {mode}")
 
         if mode == "prefix_regex":
@@ -103,6 +103,13 @@ def validate_pipeline_schema(kp: dict[str, Any]) -> None:
             if not key_regex:
                 raise ValueError(f"source_flows[{idx}].key_regex is required for prefix_regex")
             re.compile(key_regex)
+
+        if mode == "prefix_glob":
+            if not flow.get("prefix"):
+                raise ValueError(f"source_flows[{idx}].prefix is required for prefix_glob")
+            key_glob = flow.get("key_glob")
+            if not key_glob:
+                raise ValueError(f"source_flows[{idx}].key_glob is required for prefix_glob")
 
         if mode == "exact_key":
             if not flow.get("exact_key"):
