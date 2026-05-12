@@ -11,15 +11,14 @@ fsspec>=2026.3.0
 # Zarr / Kerchunk / Xarray ecosystem
 xarray>=2026.4.0
 zarr>=3.2.0
-kerchunk>= 0.2.10
+kerchunk>=0.2.10
 h5netcdf>=1.8.1
 h5py>=3.16.0
 
 # Object store
-obstore>= 0.9.4
-obspec>= 0.1.0
-obspec-utils>= 0.9.0
+obstore>=0.9.4
+obspec>=0.1.0
+obspec-utils>=0.9.0
 
-#TODO: Remove the following line once the fix is merged and released in VirtualiZarr
-virtualizarr @git+https://github.com/zarr-developers/VirtualiZarr.git@fix/problem_fillvalues
-
+# Virtualizarr core
+virtualizarr>=2.6.1
