@@ -28,7 +28,10 @@ __pycache__/
 # Misc
 .github/*
 !.github/workflows/
-logs/
 .databricks
 *databricks.yml
 .databricks
+
+# Logs
+logs/
+.runtime_logs/
