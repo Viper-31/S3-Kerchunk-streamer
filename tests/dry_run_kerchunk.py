@@ -8,6 +8,8 @@ from utils.config_utils import load_pipeline_config, resolve_secrets
 from pipeline import generate_parquet as gp
 import warnings
 
+pytestmark= pytest.mark.e2e
+
 warnings.filterwarnings(
     "ignore",
     message="Numcodecs codecs are not in the Zarr version 3 specification*",

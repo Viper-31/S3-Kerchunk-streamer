@@ -1,0 +1,8 @@
+[tool.pytest]
+pythonpath= "."
+testpaths= ["tests"]
+
+addopts= "-m 'not e2e'"
+
+# Register e2e markers to avoid warnings
+markers= ["e2e": end-to-end integration tests that run against sample S3 targets]
