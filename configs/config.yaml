@@ -23,7 +23,8 @@ kerchunk_pipeline:
     temp_path: "acacia_refs_temp"
 
   execution:
-    max_workers: 6
+    max_workers: 5
+    memory_limit_gb: "1.5GB" # 1.5GB per worker
     list_page_size: 1000
     parquet_record_size: 100000 # Will generate refs.0.parq, refs.1.parq, etc. if total refs > parquet_record_size.
     categorical_threshold: 10 # Only applicable for vz.open_mfadataset(). If vds has <10 unique S3 URLs, it will store the S3 URLs in a lookup table for quick access. Otherwise, it will store the S3 URLs in the parquet file and read them on demand.
