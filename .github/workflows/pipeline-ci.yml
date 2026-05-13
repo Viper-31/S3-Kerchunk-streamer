@@ -1,19 +1,36 @@
 name: pipeline-ci
 on:
   pull_request:
+  push:
+    branches:
+      - main
 
 jobs:
-  Explore-GitHub-Actions:
+  test-and-coverage:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
-      - run: echo "🐧 This job is now running on a ${{ runner.os }} server hosted by GitHub!"
-      - run: echo "🔎 The name of your branch is ${{ github.ref }} and your repository is ${{ github.repository }}."
-      - name: Check out repository code
+      - name: Checkout repository code
         uses: actions/checkout@v6
-      - run: echo "💡 The ${{ github.repository }} repository has been cloned to the runner."
-      - run: echo "🖥️ The workflow is now ready to test your code on the runner."
-      - name: List files in the repository
+      
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install pytest and coverage
         run: |
-          ls ${{ github.workspace }}
-      - run: echo "🍏 This job's status is ${{ job.status }}."
+          python -m pip install --upgrade pip
+          # Not installing full dependencies to speed up the CI, only pytest and coverage are needed for testing
+          pip install pytest pytest-cov
+      
+      - name: Run tests with coverage
+        run: |
+          pytest --cov-report=xml
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: ./coverage.xml
+          fail_ci_if_error: true
