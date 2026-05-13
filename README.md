@@ -34,7 +34,7 @@ This pipeline enables efficient, cloud-optimized access to large historical weat
    ```
 
 2. **Configure Secrets**:
-   Create a file at `.env/s3_connect.txt` with your Acacia credentials:
+   Create a file at `.env/s3_connect.txt` with Acacia credentials:
    ```text
    ACCESS_KEY=your_access_key
    SECRET_KEY=your_secret_key
@@ -45,8 +45,7 @@ This pipeline enables efficient, cloud-optimized access to large historical weat
 
 ## Execution
 
-The pipeline can be executed via the provided notebooks in the `connections/` directory:
-- `01.1-inventory_generate_refs.ipynb`: The main entry point for running the full inventory scan and reference generation.
+The pipeline can be executed via executing the `main.ipynb` orchestration notebook for the full S3 inventory scan and Parquet reference generation
 
 The pipeline follows a **Research -> Strategy -> Execution** flow:
 1. **Scan**: Enumerate S3 objects based on the configured `source_flows`.
