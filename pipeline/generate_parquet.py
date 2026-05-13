@@ -37,7 +37,7 @@ def _keys_to_generate(diff: dict[str, list[str]]) -> list[str]:
 
 """Map a source key to a stable parquet reference output path."""
 def reference_relpath_for_key(source_key: str) -> str:
-    return f"refs/{source_key}.parquet"
+    return f"refs/{source_key}.parq"
 
 """
 Tmp and final staging paths to drop Kerchunk Parquet reference files.
@@ -51,7 +51,7 @@ class ReferencePaths:
 def build_reference_paths(key: str, staging_volume_path: str, temp_path: str) -> ReferencePaths:
     return ReferencePaths(
         final_ref_path=Path(staging_volume_path) / reference_relpath_for_key(key),
-        tmp_ref_path=Path(temp_path) / f"{key.replace('/', '__')}.tmp.parquet",
+        tmp_ref_path=Path(temp_path) / f"{key.replace('/', '__')}.tmp.parq",
     )
 
 def prepare_temp_target(tmp_ref_path: Path) -> None:

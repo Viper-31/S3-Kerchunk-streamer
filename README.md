@@ -71,7 +71,7 @@ storage_options = {
 
 # Open the virtualized dataset using the generated Parquet reference
 ds = xr.open_dataset(
-    "path/to/reference.parquet",
+    "path/to/reference.parq",
     engine="kerchunk",
     backend_kwargs={"storage_options": {"remote_options": storage_options}}
 )
