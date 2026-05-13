@@ -26,7 +26,8 @@ __pycache__/
 .ipynb_checkpoints/
 
 # Misc
-.github/
+.github/*
+!.github/workflows/
 logs/
 .databricks
 *databricks.yml
