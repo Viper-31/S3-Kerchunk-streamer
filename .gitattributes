@@ -1,0 +1,7 @@
+# Handle Jupyter notebooks with nbstripout to remove output and metadata
+*.ipynb filter=nbstripout
+*.zpln filter=nbstripout
+*.ipynb diff=ipynb
+
+main.ipynb -filter
+
