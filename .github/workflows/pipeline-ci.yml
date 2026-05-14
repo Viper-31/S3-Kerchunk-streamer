@@ -1,10 +1,7 @@
 name: pipeline-ci
 on:
   pull_request:
-  push:
-    branches:
-      - main
-
+  
 jobs:
   test-and-coverage:
     runs-on: ubuntu-latest
