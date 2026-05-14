@@ -288,7 +288,7 @@ def remove_deleted_references(
 
     return {"removed": removed, "missing": missing}
 
-"""Generate references concurrently and return summary, results, and failures."""
+"""Generate references in parallel and return summary, results, and failures."""
 def parallel_dask_ref_generation(
     *,
     client: Client,
