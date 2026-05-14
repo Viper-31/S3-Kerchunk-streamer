@@ -32,6 +32,11 @@ __pycache__/
 *databricks.yml
 .databricks
 
+# Acacia .parq references
+*.parq
+acacia_refs_staging/
+acacia_refs_temp/
+
 # Logs
 logs/
 .runtime_logs/

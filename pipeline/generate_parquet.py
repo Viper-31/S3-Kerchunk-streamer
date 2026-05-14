@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 import os
 import shutil
 from dataclasses import dataclass
@@ -140,7 +141,16 @@ def commit_reference(tmp_ref_path: Path, final_ref_path: Path) -> None:
         else:
             final_ref_path.unlink(missing_ok=True)
 
-    os.replace(tmp_ref_path, final_ref_path)
+    retries= 5
+    for attempt in range(retries):
+        try:
+            os.replace(tmp_ref_path, final_ref_path)
+            break
+        except PermissionError as e:
+            if attempt < retries -1:
+                time.sleep(0.5)
+            else:
+                raise e
 
 """Validate inventory diifs"""
 def validate_generation_inputs(
