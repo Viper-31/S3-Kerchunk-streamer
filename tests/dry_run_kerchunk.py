@@ -1,4 +1,4 @@
-# Run with: python -m pytest -s tests/dry_run_kerchunk.py
+# Run with: python -m pytest -s -m "" tests/dry_run_kerchunk.py 
 # End-to-end dry run test with sample DPIRD and ECMWF datasets
 import time
 import pytest
