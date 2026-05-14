@@ -141,6 +141,7 @@ def commit_reference(tmp_ref_path: Path, final_ref_path: Path) -> None:
         else:
             final_ref_path.unlink(missing_ok=True)
 
+    # Retry logic for Windows transient file lock when Defender is scanning files
     retries= 5
     for attempt in range(retries):
         try:
