@@ -149,18 +149,29 @@ def find_env_file(filename= "s3_connect.txt",env_dir=".env"):
     raise FileNotFoundError(f"Could not find {env_dir}/{filename} in any parent folder")
 
 def resolve_secrets(kp:dict[str, Any]) -> tuple[str, str]:
-    secret_path= find_env_file()
+    # Check for GitHub environment variables
+    access_key= os.environ.get("ACACIA_ACCESS_KEY")
+    secret_key= os.environ.get("ACACIA_SECRET_KEY")
 
-    secrets={}
-    with open(secret_path,"r") as f:
-        for line in f:
-            if "=" in line:
-                key, value= line.strip().split("=",1)
-                secrets[key]= value
+    if access_key and secret_key:
+        return access_key, secret_key
+    try:
+        # .env locating function
+        secret_path= find_env_file()
     
-    access_key= secrets.get("ACCESS_KEY")
-    secret_key= secrets.get("SECRET_KEY")
+        secrets={}
+        with open(secret_path,"r") as f:
+            for line in f:
+                if "=" in line:
+                    key, value= line.strip().split("=",1)
+                    secrets[key]= value
+        
+        access_key= secrets.get("ACCESS_KEY")
+        secret_key= secrets.get("SECRET_KEY")
 
+    except FileNotFoundError:
+        raise ValueError("Secrets not found. Please provide Acacia access and secret keys in repo settings.")
+        
     if not access_key or not secret_key:
         raise ValueError(f"Secrets file at {secret_path} is missing required keys.")
         

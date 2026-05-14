@@ -25,6 +25,9 @@ jobs:
           pip install pytest pytest-cov
       
       - name: Run tests with coverage
+        env:
+          ACACIA_ACCESS_KEY: ${{ secrets.ACACIA_ACCESS_KEY }}
+          ACACIA_SECRET_KEY: ${{ secrets.ACACIA_SECRET_KEY }}
         run: |
           pytest --cov-branch --cov-report=xml
       
