@@ -84,11 +84,11 @@ def test_dry_run_performance(monkeypatch):
     print("DRY RUN PERFORMANCE BENCHMARK")
     print("="*50)
 
-    for key in test_keys:
+    for source_key in test_keys:
         start_time = time.time()
         
         result = gp.generate_reference_for_object(
-            key=key,
+            source_key=source_key,
             bucket=kp["s3"]["bucket"],
             access_key=ACCESS_KEY,
             secret_key=SECRET_KEY,
@@ -96,7 +96,7 @@ def test_dry_run_performance(monkeypatch):
             registry=registry,
             staging_volume_path=str(tmp_dir),
             temp_path=str(work_dir),
-            current_objects={key: {"flow_id": "dry-run-test"}},
+            current_objects={source_key: {"flow_id": "dry-run-test"}},
             record_size=100000,
             categorical_threshold=10
         )
@@ -104,7 +104,7 @@ def test_dry_run_performance(monkeypatch):
         end_time = time.time()
         duration = end_time - start_time
         
-        print(f"Key: {key}")
+        print(f"Source_key: {source_key}")
         print(f"Duration: {duration:.2f}s")
         print(f"Status: {result['status']}")
         if result['status'] == 'failed':
@@ -126,6 +126,6 @@ def test_dry_run_performance(monkeypatch):
         range_stats["get_object"] = 0
         range_stats["get_object_with_range"] = 0
 
-        assert result["status"] == "generated", f"Failed to generate reference for {key}"
+        assert result["status"] == "generated", f"Failed to generate reference for {source_key}"
 
     print("="*50)
