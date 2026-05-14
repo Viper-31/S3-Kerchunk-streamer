@@ -21,12 +21,12 @@ jobs:
       - name: Install pytest and coverage
         run: |
           python -m pip install --upgrade pip
-          # Not installing full dependencies to speed up the CI, only pytest and coverage are needed for testing
+          pip install -r requirements.txt
           pip install pytest pytest-cov
       
       - name: Run tests with coverage
         run: |
-          pytest --cov-report=xml
+          pytest --cov-branch --cov-report=xml
       
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
