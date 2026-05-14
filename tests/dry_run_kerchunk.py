@@ -1,12 +1,16 @@
-# Run with: python -m pytest -s -m "" tests/dry_run_kerchunk.py 
+# Run with: python -m pytest -s -m e2e tests/dry_run_kerchunk.py 
 # End-to-end dry run test with sample DPIRD and ECMWF datasets
+import os
 import time
 import pytest
+import xarray as xr
+import warnings
 import s3fs
 from pathlib import Path
+
+from pipeline.inventory import build_storage_clients
 from utils.config_utils import load_pipeline_config, resolve_secrets
 from pipeline import generate_parquet as gp
-import warnings
 
 pytestmark= pytest.mark.e2e
 
@@ -16,116 +20,140 @@ warnings.filterwarnings(
     category=UserWarning
 )
 
-"""Timinng wrappers for enrich_string_variables()"""
-# Range GET requests issued and timings
-def timing_wrapper_sub_functions(monkeypatch):
-    timings = {"select_parser": [], "enrich_string_variables": []}
-    range_stats = {"get_object": 0, "get_object_with_range": 0}
+@pytest.fixture(scope="module")
+def setup_tmp_env():
+    """Fixture to load configs, secrets and setup output dirs once."""
+    repo_root= Path(__file__).parent.parent
+    kp= load_pipeline_config(repo_root/ "configs/config.yaml")
+    ACCESS_KEY,SECRET_KEY= resolve_secrets(kp)
 
-    # Time wrappers
-    orig_select = gp.select_parser
-    def timed_select(*args, **kwargs):
-        t0 = time.time()
-        try:
-            return orig_select(*args, **kwargs)
-        finally:
-            timings["select_parser"].append(time.time() - t0)
+    fs, _ = build_storage_clients(kp, ACCESS_KEY, SECRET_KEY)
+    s3_opts = fs.storage_options.copy()
+    s3_opts["asynchronous"] = False
+    kerchunk_opts = {
+        "remote_protocol": "s3",
+        "remote_options": s3_opts
+    }
 
-    orig_enrich = gp.enrich_string_variables
-    def timed_enrich(*args, **kwargs):
-        t0 = time.time()
-        try:
-            return orig_enrich(*args, **kwargs)
-        finally:
-            timings["enrich_string_variables"].append(time.time() - t0)
-
-    monkeypatch.setattr(gp, "select_parser", timed_select)
-    monkeypatch.setattr(gp, "enrich_string_variables", timed_enrich)
-
-    # Range GET detection via S3FS internal call
-    orig_call_s3 = s3fs.S3FileSystem._call_s3
-    def wrapped_call_s3(self, method, *args, **kwargs):
-        if method == "get_object":
-            range_stats["get_object"] += 1
-            headers = kwargs.get("headers") or {}
-            if "Range" in headers:
-                range_stats["get_object_with_range"] += 1
-        return orig_call_s3(self, method, *args, **kwargs)
-
-    monkeypatch.setattr(s3fs.S3FileSystem, "_call_s3", wrapped_call_s3)
+    registry= gp._build_registry(kp, ACCESS_KEY, SECRET_KEY)
     
-    return timings, range_stats
-
-def test_dry_run_performance(monkeypatch):
-    """Benchmark Kerchunk generation for specific DPIRD and ECMWF keys."""
-    # Get timings and range of get_object from timing wrapper monkey patch
-    timings, range_stats = timing_wrapper_sub_functions(monkeypatch)
-    
-    repo_root = Path(__file__).parent.parent
-    kp = load_pipeline_config(repo_root / "configs/config.yaml")
-    ACCESS_KEY, SECRET_KEY = resolve_secrets(kp)
-    
-    registry = gp._build_registry(kp, ACCESS_KEY, SECRET_KEY)
-    
-    test_keys = [
-        "vz_kerchunk/DPIRD/DPIRD_stations_2022_2025.nc",
-        "vz_kerchunk/ECMWF/2024/02/06.nc"
-    ]
-    
-    # Target .tmp directory relative to project root
     tmp_dir = repo_root / ".tmp"
     work_dir = repo_root / ".tmp" / "work"
-    
-    # Prepare directories (existing files will be overwritten during generation)
     tmp_dir.mkdir(parents=True, exist_ok=True)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    print("\n" + "="*50)
-    print("DRY RUN PERFORMANCE BENCHMARK")
-    print("="*50)
+    return {
+        "kp": kp,
+        "access": ACCESS_KEY,
+        "secret": SECRET_KEY,
+        "registry": registry,
+        "kerchunk_opts": kerchunk_opts,
+        "tmp_dir": tmp_dir,
+        "work_dir": work_dir
+    }
 
-    for source_key in test_keys:
-        start_time = time.time()
-        
-        result = gp.generate_reference_for_object(
-            source_key=source_key,
-            bucket=kp["s3"]["bucket"],
-            access_key=ACCESS_KEY,
-            secret_key=SECRET_KEY,
-            s3_config=kp["s3"],
-            registry=registry,
-            staging_volume_path=str(tmp_dir),
-            temp_path=str(work_dir),
-            current_objects={source_key: {"flow_id": "dry-run-test"}},
-            record_size=100000,
-            categorical_threshold=10
-        )
-        
-        end_time = time.time()
-        duration = end_time - start_time
-        
-        print(f"Source_key: {source_key}")
-        print(f"Duration: {duration:.2f}s")
-        print(f"Status: {result['status']}")
-        if result['status'] == 'failed':
-            print(f"Error: {result.get('error')}")
-        print("-" * 30)
+@pytest.fixture
+def perf_tracker(monkeypatch):
+    """Fixture to track timings and S3 GET requests during the test."""
+    timings= {"select_parser": [], "enrich_string_variables": []}
+    range_stats= {"get_object": 0, "get_object_with_range": 0}
 
-        # 
-        sel_avg = sum(timings["select_parser"]) / len(timings["select_parser"]) if timings["select_parser"] else 0
-        enr_avg = sum(timings["enrich_string_variables"]) / len(timings["enrich_string_variables"]) if timings["enrich_string_variables"] else 0
-        
-        print(f"select_parser avg: {sel_avg:.4f}s")
-        print(f"enrich_string_variables avg: {enr_avg:.4f}s")
-        print("get_object calls:", range_stats["get_object"])
-        print("get_object with Range:", range_stats["get_object_with_range"])
-        
-        # Reset stats for the next key
-        timings["select_parser"].clear()
-        timings["enrich_string_variables"].clear()
-        range_stats["get_object"] = 0
-        range_stats["get_object_with_range"] = 0
+    orig_parser_func= gp.select_parser
+    def timed_parser(*args, **kwargs):
+        t0= time.time()
+        try:
+            return orig_parser_func(*args, **kwargs)
+        finally:
+            timings["select_parser"].append(time.time - t0)
 
-        assert result["status"] == "generated", f"Failed to generate reference for {source_key}"
+    orig_enrich_string_func= gp.enrich_string_variables
+    def timed_enrich(*args, **kwargs):
+        t0= time.time()
+        try:
+            return orig_enrich_string_func(*args, **kwargs)
+        finally:
+            timings["enrich_string_variables"].append(time.time - t0)
 
-    print("="*50)
+    orig_call_s3_func= s3fs.S3FileSystem._call_s3
+    def wrapped_call_s3(self, method, *args, **kwargs):
+        if method == "get_object":
+            range_stats["get_object"] += 1
+            if "Range" in (kwargs.get("headers") or {}):
+                range_stats["get_object_with_range"] += 1
+        return orig_call_s3_func(self, method, *args, **kwargs)
+    
+    monkeypatch.setattr(gp, "select_parser", timed_parser)
+    monkeypatch.setattr(gp, "enrich_string_variables", timed_enrich)
+    monkeypatch.setattr(s3fs.S3FileSystem, "_call_s3", wrapped_call_s3)
+
+    yield timings, range_stats
+
+def record_github_summary(source_key, duration, timings, range_stats):
+    """Persists benchmark results to GitHub Actions UI"""
+    parser_avg = sum(timings["select_parser"]) / len(timings["select_parser"]) if timings["select_parser"] else 0
+    enrich_avg = sum(timings["enrich_string_variables"]) / len(timings["enrich_string_variables"]) if timings["enrich_string_variables"] else 0
+
+    summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_file:
+        return
+
+    markdown_row = (
+        f"| `{source_key}` | {duration:.2f}s | {parser_avg:.4f}s | {enrich_avg:.4f}s | "
+        f"{range_stats['get_object']} | {range_stats['get_object_with_range']} |\n"
+    )
+
+    with open(summary_file, "a") as f:
+        # Write headers if it's the first entry
+        if f.tell() == 0:
+            f.write("### Dry Run Performance Benchmarks\n\n")
+            f.write("| Source Key | Total Duration | Avg Select Parser | Avg Enrich String | GET calls | GET w/Range |\n")
+            f.write("|------------|----------------|-------------------|-------------------|-----------|--------------|\n")
+        f.write(markdown_row)
+
+@pytest.mark.parametrize("source_key, dataset_type", [
+    ("vz_kerchunk/DPIRD/DPIRD_stations_2022_2025.nc", "DPIRD"),
+    ("vz_kerchunk/ECMWF/2024/02/06.nc", "ECMWF")
+])
+def test_dry_run_performance(source_key, dataset_type, setup_tmp_env, perf_tracker):
+    """Benchmark Kerchunk generation and validate output integrity"""
+    timings, range_stats= perf_tracker
+    start_time= time.time() 
+
+    result= gp.generate_reference_for_object(
+        source_key = source_key,
+        bucket = setup_tmp_env["kp"]["s3"]["bucket"],
+        access_key = setup_tmp_env["access"],
+        secret_key = setup_tmp_env["secret"],
+        s3_config = setup_tmp_env["kp"]["s3"],
+        registry = setup_tmp_env["registry"],
+        staging_volume_path = str(setup_tmp_env["tmp_dir"]),
+        temp_path = str(setup_tmp_env["work_dir"]),
+        current_objects = {source_key: {"flow_id": "dry-run-test"}},
+        record_size = 100000,
+        categorical_threshold = 10
+    )
+    
+    duration= time.time() - start_time
+    record_github_summary(source_key, duration, timings, range_stats)
+
+    # Generation success
+    assert result["status"] == "generated", f"Failed to generate reference for {source_key}: {result.get('error')}"
+
+    # Assert parquet reference exists
+    ref_parquet_path= setup_tmp_env["tmp_dir"] / "refs" / f"{source_key}.parq"
+    assert ref_parquet_path.exists(), f"Parquet file missing at {ref_parquet_path}"
+
+    # Assert xarray reads from .parq
+    ds= xr.open_dataset(
+        str(ref_parquet_path),
+        engine="kerchunk",
+        storage_options=setup_tmp_env["kerchunk_opts"]
+    )
+
+    if dataset_type == "DPIRD":
+        assert "station" in ds.coords, "DPIRD missing 'station' coordinate"
+        assert ds.station.size > 0, "DPIRD dataset is empty" 
+    elif dataset_type == "ECMWF":
+        assert "t2m" in ds.data_vars, "ECMWF missing 't2m' variable"
+        assert ds.t2m.shape == (14, 113, 111, 151), f"Unexpected shape for t2m: {ds.t2m.shape}"
+        assert "valid_time" in ds.coords, "ECMWF missing 'valid_time' coordinate"

@@ -1,0 +1,35 @@
+name: pipeline-e2e-dry-run
+on:
+  pull_request: 
+    branches: ["main"]
+
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+jobs:
+  e2e-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository code
+        uses: actions/checkout@v6
+      
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies for e2e tests
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run e2e tests in dry-run mode
+        env:
+          ACACIA_ACCESS_KEY: ${{ secrets.ACACIA_ACCESS_KEY }}
+          ACACIA_SECRET_KEY: ${{ secrets.ACACIA_SECRET_KEY }}
+        run: |
+          pytest -s -m e2e tests/dry_run_kerchunk.py
