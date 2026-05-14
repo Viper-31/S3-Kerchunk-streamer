@@ -9,7 +9,7 @@ This pipeline enables efficient, cloud-optimized access to large historical weat
 **Key Capabilities:**
 - **Cloud-Optimized Access**: Converts traditional NetCDF S3 objects into virtual cloud-optimized datasets using Kerchunk and VirtualiZarr.
 - **Incremental Processing**: Tracks `ETag`, `LastModified`, and `Size` in a local JSON inventory ledger to ensure only new or changed files are reprocessed.
-- **Local Parallelism**: Leverages Dask for concurrent reference generation, optimized for local multi-core environments.
+- **Local Parallelism**: Leverages Dask for parallel reference generation, optimized for local multi-core environments.
 - **Atomic Operations**: Implements atomic writes for both Parquet references and the inventory ledger to prevent state corruption.
 - **Visualization Ready**: Consumer applications can open the metadata via `ReferenceFileSystem` and `xarray` to pull precise byte slices for interactive streaming.
 
@@ -17,7 +17,7 @@ This pipeline enables efficient, cloud-optimized access to large historical weat
 
 - `configs/config.yaml`: Central configuration for S3 endpoints, source flow selectors (ECMWF, DPIRD), and output paths.
 - `pipeline/inventory.py`: Logic for scanning S3, building inventory snapshots, and performing incremental diffing.
-- `pipeline/generate_parquet.py`: Concurrent generation of Kerchunk Parquet references using `VirtualiZarr` and `Dask`.
+- `pipeline/generate_parquet.py`: Parallel generation of Kerchunk Parquet references using `VirtualiZarr` and `Dask`.
 - `utils/config_utils.py`: Runtime readiness checks, configuration loading, and local secret resolution.
 - `requirements.txt`: Python dependencies including `kerchunk`, `virtualizarr`, `obstore`, `xarray`, and `dask`.
 
@@ -50,7 +50,7 @@ The pipeline can be executed via executing the `main.ipynb` orchestration notebo
 The pipeline follows a **Research -> Strategy -> Execution** flow:
 1. **Scan**: Enumerate S3 objects based on the configured `source_flows`.
 2. **Diff**: Compare against the local `inventory_ledger.json` to identify new or changed objects.
-3. **Generate**: Concurrently produce one Parquet reference file per changed object.
+3. **Generate**: Parallel produce one Parquet reference file per changed object.
 4. **Commit**: Update the ledger only after successful generation.
 
 ## Downstream Usage

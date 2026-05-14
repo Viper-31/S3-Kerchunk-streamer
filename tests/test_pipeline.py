@@ -72,7 +72,7 @@ class TestKerchunkPipeline(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             generate_reference_for_object(
-                key="test/data.nc",
+                source_key="test/data.nc",
                 bucket=self.kp["s3"]["bucket"],
                 access_key="ak",
                 secret_key="sk",
@@ -147,15 +147,15 @@ class TestKerchunkPipeline(unittest.TestCase):
 
     def test_reference_relpath_for_key(self):
         """Test mapping of source key to parquet reference path."""
-        key = "ecmwf_op_clean/2024/02/06.nc"
-        expected = f"refs/{key}.parq"
-        self.assertEqual(reference_relpath_for_key(key), expected)
+        source_key = "ecmwf_op_clean/2024/02/06.nc"
+        expected = f"refs/{source_key}.parq"
+        self.assertEqual(reference_relpath_for_key(source_key), expected)
 
     def test_build_reference_paths(self):
         """Path unit test: stable mapping from source key to final/tmp parquet paths."""
-        key = "ecmwf_op_clean/2024/02/06.nc"
+        source_key = "ecmwf_op_clean/2024/02/06.nc"
         paths = build_reference_paths(
-            key=key,
+            source_key=source_key,
             staging_volume_path="acacia_refs_staging",
             temp_path="acacia_refs_temp",
         )
@@ -270,7 +270,7 @@ class TestKerchunkPipeline(unittest.TestCase):
             vds=vds,
             fs=fs,
             bucket="weather",
-            key="k.nc",
+            source_key="k.nc",
             string_vars=[],
         )
 
@@ -306,7 +306,7 @@ class TestKerchunkPipeline(unittest.TestCase):
             parser=parser,
             fs=fs,
             bucket="weather",
-            key="x.nc",
+            source_key="x.nc",
             string_vars=["station_name"],
             tmp_ref_path=tmp_ref_path,
             record_size=record_size,
@@ -323,7 +323,7 @@ class TestKerchunkPipeline(unittest.TestCase):
             vds=raw_vds,
             fs=fs,
             bucket="weather",
-            key="x.nc",
+            source_key="x.nc",
             string_vars=["station_name"],
         )
         enriched_vds.vz.to_kerchunk.assert_called_once_with(
@@ -355,7 +355,7 @@ class TestKerchunkPipeline(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             result = generate_reference_for_object(
-                key="test/data.nc",
+                source_key="test/data.nc",
                 bucket="my-bucket",
                 access_key="ak",
                 secret_key="sk",
@@ -369,7 +369,7 @@ class TestKerchunkPipeline(unittest.TestCase):
             )
 
         self.assertEqual(result["status"], "generated")
-        self.assertEqual(result["key"], "test/data.nc")
+        self.assertEqual(result["source_key"], "test/data.nc")
         self.assertEqual(result["flow_id"], "flow1")
         mock_select_parser.assert_called_once()
         mock_build_vds.assert_called_once()
@@ -383,8 +383,8 @@ class TestKerchunkPipeline(unittest.TestCase):
             "deleted": ["d.nc"],
             "unchanged": ["e.nc"]
         }
-        keys = _keys_to_generate(diff)
-        self.assertEqual(keys, ["a.nc", "b.nc", "c.nc"])
+        source_keys = _keys_to_generate(diff)
+        self.assertEqual(source_keys, ["a.nc", "b.nc", "c.nc"])
 
     def test_generation_input_rejects_missing_key(self):
         """Current_objects missing required key fails validation early."""
@@ -496,7 +496,7 @@ class TestKerchunkPipeline(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             result = generate_reference_for_object(
-                key="test/data.nc",
+                source_key="test/data.nc",
                 bucket="my-bucket",
                 access_key="test-access-key",
                 secret_key="test-secret-key",
@@ -510,7 +510,7 @@ class TestKerchunkPipeline(unittest.TestCase):
             )
         
         self.assertEqual(result["status"], "generated")
-        self.assertEqual(result["key"], "test/data.nc")
+        self.assertEqual(result["source_key"], "test/data.nc")
         # Ensure to_kerchunk was called
         mock_vds.vz.to_kerchunk.assert_called_once()
         # Check that we tried to use HDFParser (first in list)

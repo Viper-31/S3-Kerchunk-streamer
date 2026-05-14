@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 import os
 import shutil
 from dataclasses import dataclass
@@ -29,7 +30,7 @@ def _resolve_workers(worker_cfg_number: Any) -> int:
         return max(1, min(4, (os.cpu_count()-3 or 4)))
     return max(1, int(worker_cfg_number))
 
-"""Return sorted unique keys that need reference generation."""
+"""Return sorted unique source keys that need reference generation."""
 def _keys_to_generate(diff: dict[str, list[str]]) -> list[str]:
     return sorted(set(diff.get("new", []) + diff.get("changed", [])))
 
@@ -47,10 +48,10 @@ class ReferencePaths:
     final_ref_path: Path
     tmp_ref_path: Path
 
-def build_reference_paths(key: str, staging_volume_path: str, temp_path: str) -> ReferencePaths:
+def build_reference_paths(source_key: str, staging_volume_path: str, temp_path: str) -> ReferencePaths:
     return ReferencePaths(
-        final_ref_path=Path(staging_volume_path) / reference_relpath_for_key(key),
-        tmp_ref_path=Path(temp_path) / f"{key.replace('/', '__')}.tmp.parq",
+        final_ref_path=Path(staging_volume_path) / reference_relpath_for_key(source_key),
+        tmp_ref_path=Path(temp_path) / f"{source_key.replace('/', '__')}.tmp.parq",
     )
 
 def prepare_temp_target(tmp_ref_path: Path) -> None:
@@ -65,8 +66,8 @@ def prepare_temp_target(tmp_ref_path: Path) -> None:
 Inspect dtypes and choose parser configuration. Fixes AttributeError: 'bytes' object has no attribute .item()
 If variables is String/Object/U dtype, drop the string_variable in HDFParser.
 """
-def select_parser(fs: s3fs.S3FileSystem, bucket: str, key: str) -> tuple[HDFParser, list[str]]:
-    with fs.open(f"{bucket}/{key}", "rb") as fh:
+def select_parser(fs: s3fs.S3FileSystem, bucket: str, source_key: str) -> tuple[HDFParser, list[str]]:
+    with fs.open(f"{bucket}/{source_key}", "rb") as fh:
         ds_real = xr.open_dataset(fh, engine="h5netcdf")
         string_vars = [
             var_name
@@ -83,13 +84,13 @@ def enrich_string_variables(
     vds: Any,
     fs: s3fs.S3FileSystem,
     bucket: str,
-    key: str,
+    source_key: str,
     string_vars: list[str],
 ) -> Any:
     if not string_vars:
         return vds
 
-    with fs.open(f"{bucket}/{key}", "rb") as fh:
+    with fs.open(f"{bucket}/{source_key}", "rb") as fh:
         ds_real = xr.open_dataset(fh, engine="h5netcdf")
         for var in string_vars:
             if var in ds_real:
@@ -104,7 +105,7 @@ def build_vds_to_reference(
     parser: HDFParser,
     fs: s3fs.S3FileSystem,
     bucket: str,
-    key: str,
+    source_key: str,
     string_vars: list[str],
     tmp_ref_path: Path,
     record_size: int,
@@ -121,7 +122,7 @@ def build_vds_to_reference(
         vds=vds,
         fs=fs,
         bucket=bucket,
-        key=key,
+        source_key=source_key,
         string_vars=string_vars,
     )
 
@@ -140,7 +141,17 @@ def commit_reference(tmp_ref_path: Path, final_ref_path: Path) -> None:
         else:
             final_ref_path.unlink(missing_ok=True)
 
-    os.replace(tmp_ref_path, final_ref_path)
+    # Retry logic for Windows transient file lock when Defender is scanning files
+    retries= 5
+    for attempt in range(retries):
+        try:
+            os.replace(tmp_ref_path, final_ref_path)
+            break
+        except PermissionError as e:
+            if attempt < retries -1:
+                time.sleep(0.5)
+            else:
+                raise e
 
 """Validate inventory diifs"""
 def validate_generation_inputs(
@@ -193,7 +204,7 @@ def _build_registry(kp: dict[str, Any], access_key: str, secret_key: str) -> Obj
 """Generate a parquet reference for one source object with atomic output replace."""
 def generate_reference_for_object(
     *,
-    key: str,
+    source_key: str,
     bucket: str,
     access_key: str,
     secret_key: str,
@@ -205,10 +216,10 @@ def generate_reference_for_object(
     record_size: int,
     categorical_threshold: int,
 ) -> dict[str, Any]:
-    source_url = f"s3://{bucket}/{key}"
-    flow_id = current_objects.get(key, {}).get("flow_id", "unknown")
+    source_url = f"s3://{bucket}/{source_key}"
+    flow_id = current_objects.get(source_key, {}).get("flow_id", "unknown")
 
-    ref_paths = build_reference_paths(key, staging_volume_path, temp_path)
+    ref_paths = build_reference_paths(source_key, staging_volume_path, temp_path)
     final_ref_path = ref_paths.final_ref_path
     tmp_ref_path = ref_paths.tmp_ref_path
 
@@ -227,7 +238,7 @@ def generate_reference_for_object(
             config_kwargs={"signature_version": "s3v4", "s3": {"addressing_style": "path"}}
         )
 
-        parser, string_vars = select_parser(fs, bucket, key)
+        parser, string_vars = select_parser(fs, bucket, source_key)
         
         build_vds_to_reference(
             source_url=source_url,
@@ -235,7 +246,7 @@ def generate_reference_for_object(
             parser=parser,
             fs=fs,
             bucket=bucket,
-            key=key,
+            source_key=source_key,
             string_vars=string_vars,
             tmp_ref_path=tmp_ref_path,
             record_size=record_size,
@@ -250,7 +261,7 @@ def generate_reference_for_object(
 
     if last_error is not None:
         return {
-            "key": key,
+            "source_key": source_key,
             "flow_id": flow_id,
             "status": "failed",
             "error": f"{type(last_error).__name__}: {last_error}",
@@ -259,7 +270,7 @@ def generate_reference_for_object(
     commit_reference(tmp_ref_path, final_ref_path)
     
     return {
-        "key": key,
+        "source_key": source_key,
         "flow_id": flow_id,
         "status": "generated",
         "parser": parser_used,
@@ -288,7 +299,7 @@ def remove_deleted_references(
 
     return {"removed": removed, "missing": missing}
 
-"""Generate references concurrently and return summary, results, and failures."""
+"""Generate references in parallel and return summary, results, and failures."""
 def parallel_dask_ref_generation(
     *,
     client: Client,
@@ -310,10 +321,10 @@ def parallel_dask_ref_generation(
     record_size = exec_cfg["parquet_record_size"]
     categorical_threshold = exec_cfg["categorical_threshold"]
 
-    keys = _keys_to_generate(inventory_diff)
+    source_keys = _keys_to_generate(inventory_diff)
     deleted_keys = sorted(inventory_diff.get("deleted", []))
 
-    if not keys:
+    if not source_keys:
         delete_summary = remove_deleted_references(
             staging_volume_path=staging_volume_path,
             deleted_keys=deleted_keys,
@@ -335,23 +346,23 @@ def parallel_dask_ref_generation(
     results: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
 
-    futures= [
-        client.submit(
-            generate_reference_for_object,
-            key=key,
-            bucket=bucket,
-            access_key=access_key,
-            secret_key=secret_key,
-            s3_config=kp["s3"],
-            registry=registry,
-            staging_volume_path=staging_volume_path,
-            temp_path=temp_path,
-            current_objects=current_objects,
-            record_size=record_size,
-            categorical_threshold=categorical_threshold,
-        )
-        for key in keys
-    ]
+    futures= []    
+    for source_key in source_keys:
+        task_kwargs= {
+            "source_key": source_key,
+            "bucket": bucket,
+            "access_key": access_key,
+            "secret_key": secret_key,
+            "s3_config": kp["s3"],
+            "registry": registry,
+            "staging_volume_path": staging_volume_path,
+            "temp_path": temp_path,
+            "current_objects": current_objects,
+            "record_size": record_size,
+            "categorical_threshold": categorical_threshold,
+        }
+        future= client.submit(generate_reference_for_object, **task_kwargs)
+        futures.append(future)
 
     for future in as_completed(futures):
         res= future.result()    
@@ -367,7 +378,7 @@ def parallel_dask_ref_generation(
 
     summary = {
         "scanned": len(current_objects),
-        "changed_or_new": len(keys),
+        "changed_or_new": len(source_keys),
         "generated": len(results) - len(failures),
         "skipped": 0,
         "failed": len(failures),
@@ -378,6 +389,6 @@ def parallel_dask_ref_generation(
 
     return {
         "summary": summary,
-        "results": sorted(results, key=lambda x: x["key"]),
-        "failures": sorted(failures, key=lambda x: x["key"]),
+        "results": sorted(results, key=lambda x: x["source_key"]),
+        "failures": sorted(failures, key=lambda x: x["source_key"]),
     }
