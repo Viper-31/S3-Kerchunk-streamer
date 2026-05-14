@@ -164,6 +164,8 @@ def resolve_secrets(kp:dict[str, Any]) -> tuple[str, str]:
             for line in f:
                 if "=" in line:
                     key, value= line.strip().split("=",1)
+                    key.strip()
+                    value.strip()
                     secrets[key]= value
         
         access_key= secrets.get("ACCESS_KEY")

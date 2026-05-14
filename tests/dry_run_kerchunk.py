@@ -64,7 +64,7 @@ def perf_tracker(monkeypatch):
         try:
             return orig_parser_func(*args, **kwargs)
         finally:
-            timings["select_parser"].append(time.time - t0)
+            timings["select_parser"].append(time.time() - t0)
 
     orig_enrich_string_func= gp.enrich_string_variables
     def timed_enrich(*args, **kwargs):
@@ -72,7 +72,7 @@ def perf_tracker(monkeypatch):
         try:
             return orig_enrich_string_func(*args, **kwargs)
         finally:
-            timings["enrich_string_variables"].append(time.time - t0)
+            timings["enrich_string_variables"].append(time.time() - t0)
 
     orig_call_s3_func= s3fs.S3FileSystem._call_s3
     def wrapped_call_s3(self, method, *args, **kwargs):
