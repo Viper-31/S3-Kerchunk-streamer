@@ -1,4 +1,5 @@
 from __future__ import annotations
+from packaging.version import parse as parse_version
 
 import re
 import os
@@ -12,11 +13,9 @@ from typing import Any
 import yaml
 
 
-REQUIRED_EXACT = {
+REQUIRED_MIN_VERSION = {
     "fsspec": "2026.3.0",
     "s3fs": "2026.3.0",
-    "dask": "2026.3.0",
-    "kerchunk": "0.2.10",
 }
 
 REQUIRED_MODULES = [
@@ -38,12 +37,12 @@ def check_runtime_readiness() -> dict[str, str]:
     if sys.version_info < (3, 12):
         errors.append("Python 3.12+ required for virtualizarr=")
 
-    for pkg, expected in REQUIRED_EXACT.items():
+    for pkg, min_ver in REQUIRED_MIN_VERSION.items():
         try:
-            got = version(pkg)
-            report[pkg] = got
-            if got != expected:
-                errors.append(f"{pkg} expected {expected}, got {got}")
+            current_pkg = version(pkg)
+            report[pkg] = current_pkg
+            if parse_version(current_pkg) < parse_version(min_ver):
+                errors.append(f"{pkg} expected >={min}, got {current_pkg}")
         except PackageNotFoundError:
             errors.append(f"{pkg} missing")
 
@@ -150,18 +149,29 @@ def find_env_file(filename= "s3_connect.txt",env_dir=".env"):
     raise FileNotFoundError(f"Could not find {env_dir}/{filename} in any parent folder")
 
 def resolve_secrets(kp:dict[str, Any]) -> tuple[str, str]:
-    secret_path= find_env_file()
+    # Check for GitHub environment variables
+    access_key= os.environ.get("ACACIA_ACCESS_KEY")
+    secret_key= os.environ.get("ACACIA_SECRET_KEY")
 
-    secrets={}
-    with open(secret_path,"r") as f:
-        for line in f:
-            if "=" in line:
-                key, value= line.strip().split("=",1)
-                secrets[key]= value
+    if access_key and secret_key:
+        return access_key, secret_key
+    try:
+        # .env locating function
+        secret_path= find_env_file()
     
-    access_key= secrets.get("ACCESS_KEY")
-    secret_key= secrets.get("SECRET_KEY")
+        secrets={}
+        with open(secret_path,"r") as f:
+            for line in f:
+                if "=" in line:
+                    key, value= line.strip().split("=",1)
+                    secrets[key]= value
+        
+        access_key= secrets.get("ACCESS_KEY")
+        secret_key= secrets.get("SECRET_KEY")
 
+    except FileNotFoundError:
+        raise ValueError("Secrets not found. Please provide Acacia access and secret keys in repo settings.")
+        
     if not access_key or not secret_key:
         raise ValueError(f"Secrets file at {secret_path} is missing required keys.")
         

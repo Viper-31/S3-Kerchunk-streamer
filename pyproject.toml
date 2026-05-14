@@ -1,0 +1,12 @@
+[tool.pytest.ini_options]
+pythonpath= "."
+testpaths= ["tests"]
+
+addopts= "-m 'not e2e' --cov=pipeline --cov-report=term --cov-report=html"
+# Use -m "" to include e2e tests
+
+# Register markers to avoid warnings
+markers= [
+    "e2e: end-to-end integration tests that run against sample S3 targets",
+    "integration: tests that require external dependencies or complex setups"
+    ]

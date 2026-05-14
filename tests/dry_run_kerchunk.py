@@ -1,13 +1,14 @@
 # Run with: python -m pytest -s tests/dry_run_kerchunk.py
-
+# End-to-end dry run test with sample DPIRD and ECMWF datasets
 import time
 import pytest
 import s3fs
 from pathlib import Path
-import shutil
 from utils.config_utils import load_pipeline_config, resolve_secrets
 from pipeline import generate_parquet as gp
 import warnings
+
+pytestmark= pytest.mark.e2e
 
 warnings.filterwarnings(
     "ignore",
@@ -15,7 +16,7 @@ warnings.filterwarnings(
     category=UserWarning
 )
 
-"""Time wrappers for enrich_string_variables()"""
+"""Timinng wrappers for enrich_string_variables()"""
 # Range GET requests issued and timings
 def timing_wrapper_sub_functions(monkeypatch):
     timings = {"select_parser": [], "enrich_string_variables": []}
@@ -57,6 +58,7 @@ def timing_wrapper_sub_functions(monkeypatch):
 
 def test_dry_run_performance(monkeypatch):
     """Benchmark Kerchunk generation for specific DPIRD and ECMWF keys."""
+    # Get timings and range of get_object from timing wrapper monkey patch
     timings, range_stats = timing_wrapper_sub_functions(monkeypatch)
     
     repo_root = Path(__file__).parent.parent
@@ -66,8 +68,8 @@ def test_dry_run_performance(monkeypatch):
     registry = gp._build_registry(kp, ACCESS_KEY, SECRET_KEY)
     
     test_keys = [
-        "FINAL_DPIRD/DPIRD_final_stations.nc",
-        "ecmwf_op_clean/2024/02/06.nc"
+        "vz_kerchunk/DPIRD/DPIRD_stations_2022_2025.nc",
+        "vz_kerchunk/ECMWF/2024/02/06.nc"
     ]
     
     # Target .tmp directory relative to project root
@@ -109,6 +111,7 @@ def test_dry_run_performance(monkeypatch):
             print(f"Error: {result.get('error')}")
         print("-" * 30)
 
+        # 
         sel_avg = sum(timings["select_parser"]) / len(timings["select_parser"]) if timings["select_parser"] else 0
         enr_avg = sum(timings["enrich_string_variables"]) / len(timings["enrich_string_variables"]) if timings["enrich_string_variables"] else 0
         

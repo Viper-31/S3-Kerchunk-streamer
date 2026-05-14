@@ -148,7 +148,7 @@ class TestKerchunkPipeline(unittest.TestCase):
     def test_reference_relpath_for_key(self):
         """Test mapping of source key to parquet reference path."""
         key = "ecmwf_op_clean/2024/02/06.nc"
-        expected = f"refs/{key}.parquet"
+        expected = f"refs/{key}.parq"
         self.assertEqual(reference_relpath_for_key(key), expected)
 
     def test_build_reference_paths(self):
@@ -162,17 +162,17 @@ class TestKerchunkPipeline(unittest.TestCase):
 
         self.assertEqual(
             paths.final_ref_path,
-            Path("acacia_refs_staging") / "refs/ecmwf_op_clean/2024/02/06.nc.parquet",
+            Path("acacia_refs_staging") / "refs/ecmwf_op_clean/2024/02/06.nc.parq",
         )
         self.assertEqual(
             paths.tmp_ref_path,
-            Path("acacia_refs_temp") / "ecmwf_op_clean__2024__02__06.nc.tmp.parquet",
+            Path("acacia_refs_temp") / "ecmwf_op_clean__2024__02__06.nc.tmp.parq",
         )
 
     def test_remove_tmpfile_for_existing_file(self):
         """Path unit test: pre-existing temp parquet file is removed before generation."""
         with tempfile.TemporaryDirectory() as td:
-            tmp_ref_path = Path(td) / "tmp" / "a.tmp.parquet"
+            tmp_ref_path = Path(td) / "tmp" / "a.tmp.parq"
             tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_ref_path.write_text("stale", encoding="utf-8")
 
@@ -183,7 +183,7 @@ class TestKerchunkPipeline(unittest.TestCase):
     def test_remove_tmpdir_for_existing_dir(self):
         """Path unit test: pre-existing temp directory at target is removed safely."""
         with tempfile.TemporaryDirectory() as td:
-            tmp_ref_path = Path(td) / "tmp" / "a.tmp.parquet"
+            tmp_ref_path = Path(td) / "tmp" / "a.tmp.parq"
             tmp_ref_path.mkdir(parents=True, exist_ok=True)
             (tmp_ref_path / "nested.txt").write_text("stale-dir", encoding="utf-8")
 
@@ -227,8 +227,8 @@ class TestKerchunkPipeline(unittest.TestCase):
         """Existing final parquet file is replaced by tmp output."""
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
-            tmp_ref_path = td_path / "work" / "obj.tmp.parquet"
-            final_ref_path = td_path / "refs" / "obj.parquet"
+            tmp_ref_path = td_path / "work" / "obj.tmp.parq"
+            final_ref_path = td_path / "refs" / "obj.parq"
 
             tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
             final_ref_path.parent.mkdir(parents=True, exist_ok=True)
@@ -245,8 +245,8 @@ class TestKerchunkPipeline(unittest.TestCase):
         """Existing final directory is removed and replaced by tmp file."""
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
-            tmp_ref_path = td_path / "work" / "obj.tmp.parquet"
-            final_ref_path = td_path / "refs" / "obj.parquet"
+            tmp_ref_path = td_path / "work" / "obj.tmp.parq"
+            final_ref_path = td_path / "refs" / "obj.parq"
 
             tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
             final_ref_path.mkdir(parents=True, exist_ok=True)
@@ -292,7 +292,7 @@ class TestKerchunkPipeline(unittest.TestCase):
         mock_open_vz.return_value = raw_vds
         mock_enrich.return_value = enriched_vds
 
-        tmp_ref_path = Path("/tmp/ref.tmp.parquet")
+        tmp_ref_path = Path("/tmp/ref.tmp.parq")
         parser = MagicMock()
         registry = MagicMock()
         fs = MagicMock()

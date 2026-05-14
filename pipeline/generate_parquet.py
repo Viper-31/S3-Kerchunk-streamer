@@ -16,8 +16,7 @@ from obstore.store import from_url
 from obspec_utils.registry import ObjectStoreRegistry
 from virtualizarr.parsers import HDFParser
 
-import dask
-from dask.distributed import Client
+from dask.distributed import Client, as_completed
 from pipeline.contracts import parse_inventory_diff, parse_object_record
 
 """Return current UTC timestamp in ISO format."""
@@ -25,10 +24,10 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 """Resolve worker count from config, defaulting to a conservative CPU-based value."""
-def _resolve_workers(raw: Any) -> int:
-    if raw in (None, "auto"):
-        return max(1, min(8, (os.cpu_count() or 4)))
-    return max(1, int(raw))
+def _resolve_workers(worker_cfg_number: Any) -> int:
+    if worker_cfg_number in (None, "auto"):
+        return max(1, min(4, (os.cpu_count()-3 or 4)))
+    return max(1, int(worker_cfg_number))
 
 """Return sorted unique keys that need reference generation."""
 def _keys_to_generate(diff: dict[str, list[str]]) -> list[str]:
@@ -37,7 +36,7 @@ def _keys_to_generate(diff: dict[str, list[str]]) -> list[str]:
 
 """Map a source key to a stable parquet reference output path."""
 def reference_relpath_for_key(source_key: str) -> str:
-    return f"refs/{source_key}.parquet"
+    return f"refs/{source_key}.parq"
 
 """
 Tmp and final staging paths to drop Kerchunk Parquet reference files.
@@ -51,7 +50,7 @@ class ReferencePaths:
 def build_reference_paths(key: str, staging_volume_path: str, temp_path: str) -> ReferencePaths:
     return ReferencePaths(
         final_ref_path=Path(staging_volume_path) / reference_relpath_for_key(key),
-        tmp_ref_path=Path(temp_path) / f"{key.replace('/', '__')}.tmp.parquet",
+        tmp_ref_path=Path(temp_path) / f"{key.replace('/', '__')}.tmp.parq",
     )
 
 def prepare_temp_target(tmp_ref_path: Path) -> None:
@@ -290,8 +289,9 @@ def remove_deleted_references(
     return {"removed": removed, "missing": missing}
 
 """Generate references concurrently and return summary, results, and failures."""
-def concurrent_dask_ref_generation(
+def parallel_dask_ref_generation(
     *,
+    client: Client,
     kp: dict[str, Any],
     access_key: str,
     secret_key: str,
@@ -335,12 +335,9 @@ def concurrent_dask_ref_generation(
     results: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
 
-    raw_workers= exec_cfg.get("max_workers")
-    workers_number= _resolve_workers(raw_workers)
-    client= Client(n_workers=workers_number,threads_per_worker=2)
-    tasks= []
-    for key in keys:
-        task= dask.delayed(generate_reference_for_object) (
+    futures= [
+        client.submit(
+            generate_reference_for_object,
             key=key,
             bucket=bucket,
             access_key=access_key,
@@ -353,10 +350,15 @@ def concurrent_dask_ref_generation(
             record_size=record_size,
             categorical_threshold=categorical_threshold,
         )
-        tasks.append(task)
+        for key in keys
+    ]
 
-    results= dask.compute(*tasks)
-    failures= [r for r in results if r["status"]=="failed"]        
+    for future in as_completed(futures):
+        res= future.result()    
+        if res["status"]== "failed":
+            failures.append(res)
+        else:
+            results.append(res)
 
     delete_summary = remove_deleted_references(
         staging_volume_path=staging_volume_path,

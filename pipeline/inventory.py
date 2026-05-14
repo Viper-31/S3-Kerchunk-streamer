@@ -288,7 +288,7 @@ def compute_snapshot_artifacts(
     }
 
 """
-Build the current inventory snapshot and diff it against the previous ledger. 
+Build the current inventory snapshot and diff it against the previous ledger in specified config ledger_path. 
 """
 def build_inventory_snapshot_and_diff(
     kp: dict[str, Any],
