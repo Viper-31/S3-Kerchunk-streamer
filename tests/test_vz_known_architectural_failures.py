@@ -9,6 +9,18 @@ sys.path.insert(0, str(repo_root))
 from utils.config_utils import load_pipeline_config, resolve_secrets
 from pipeline import generate_parquet as gp
 
+def _known_virtualizarr_Parser_failure(err: Exception) -> bool:
+    """
+    Error message checking that it contains either:
+     - HDF5Parser AttributeError on string dtype: https://github.com/zarr-developers/VirtualiZarr/pull/988
+     - corrupt buffer stream: https://github.com/NASA-IMPACT/veda-odd/issues/371
+    """
+    msg= str(err)
+    return (
+        "'bytes' object has no attribute 'item'" in msg
+        or "corrupt buffer" in msg
+    )
+
 def test_vlen_string_export_limitation():
     """
     Architectural canary test:
@@ -24,11 +36,13 @@ def test_vlen_string_export_limitation():
     url = "s3://weather/vz_kerchunk/DPIRD/DPIRD_stations_2022_2025.nc"
     parser= HDFParser()
     
-    # Stage 1: Check crash occurs on opening virtual dataset
+    # Stage 1: Check AttributeError or corrupt buffer crash occurs on opening virtual dataset
     try:
         vds = vz.open_virtual_dataset(url, registry, parser=parser)
     except Exception as e:
-        assert "corrupt buffer" in str(e), f"Expected 'corrupt buffer' error, but got: {e}"
+        assert _known_virtualizarr_Parser_failure(e), (
+            f"Expected known virtualizarr Parser error, but got :{e}"
+        )
         return
     
     # If open_virtual_dataset() succeeds, proceed to verify codec
@@ -44,7 +58,9 @@ def test_vlen_string_export_limitation():
     try:
         refs = vds.vz.to_kerchunk(format='dict')
     except Exception as e:
-        assert "corrupt buffer" in str(e), f"Expected 'corrupt buffer' error, but got: {e}"
+        assert _known_virtualizarr_Parser_failure(e), (
+            f"Expected known virtualizarr Parser error, but got :{e}"
+        )
         return
 
     # If both operations succeeded, the upstream limitation is resolved
