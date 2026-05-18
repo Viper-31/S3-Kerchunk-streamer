@@ -13,12 +13,15 @@ from pipeline.generate_parquet import (
     prepare_temp_target,
     select_parser,
     build_vds_to_reference,
+    _write_json_atomic,
+    save_ledger_after_success,
     enrich_string_variables,
     commit_reference,
     validate_generation_inputs,
     _keys_to_generate,
     _resolve_workers,
     generate_reference_for_object,
+    remove_deleted_references
 )
 from pipeline.contracts import ContractError
 from utils.config_utils import load_pipeline_config
@@ -237,7 +240,70 @@ class TestGenerateParquet(unittest.TestCase):
             self.assertFalse(tmp_ref_path.exists())
             self.assertTrue(final_ref_path.exists())
             self.assertEqual(final_ref_path.read_text(encoding="utf-8"), "new-bytes")
+    
+    @patch("pipeline.generate_parquet.time.sleep")
+    @patch("pipeline.generate_parquet.os.replace")
+    def test_commit_reference_permission_error_retries_then_succeeds(self, mock_replace, mock_sleep):
+        tmp_ref_path = Path("/tmp/a.tmp.parq")
+        final_ref_path = Path("/tmp/a.parq")
 
+        # Fail first 2 attempts, then succeed
+        mock_replace.side_effect = [PermissionError("locked"), PermissionError("locked"), None]
+
+        commit_reference(tmp_ref_path, final_ref_path)
+
+        self.assertEqual(mock_replace.call_count, 3)
+        # sleep should happen for attempts < retries - 1 (here: 2 sleeps)
+        self.assertEqual(mock_sleep.call_count, 2)
+        mock_sleep.assert_called_with(0.5)
+
+    @patch("pipeline.generate_parquet.time.sleep")
+    @patch("pipeline.generate_parquet.os.replace")
+    def test_commit_reference_permission_error_raises_last_attempt(self, mock_replace, mock_sleep):
+        tmp_ref_path = Path("/tmp/a.tmp.parq")
+        final_ref_path = Path("/tmp/a.parq")
+
+        # Fail all 5 attempts
+        mock_replace.side_effect = PermissionError("locked")
+
+        with self.assertRaises(PermissionError):
+            commit_reference(tmp_ref_path, final_ref_path)
+
+        self.assertEqual(mock_replace.call_count, 5)
+        # sleep should happen for attempts 0..3 (4 sleeps)
+        self.assertEqual(mock_sleep.call_count, 4)
+        mock_sleep.assert_called_with(0.5)
+
+    @patch("pipeline.generate_parquet.os.replace")
+    def test_write_json_atomic_uses_temp_and_replace(self, mock_replace):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "ledger.json"
+            payload = {"a": 1}
+
+            _write_json_atomic(str(target), payload)
+
+            tmp = target.with_suffix(target.suffix + ".tmp")
+            # temp file should have been created/written before replace
+            self.assertTrue(tmp.exists())
+            mock_replace.assert_called_once_with(tmp, target)
+    
+    def test_save_ledger_after_success_raises_on_failures(self):
+        with self.assertRaises(RuntimeError):
+            save_ledger_after_success(
+                ledger_path="ledger.json",
+                next_ledger={"schema_version": 1},
+                generation_summary={"failed": 1},
+            )
+
+    @patch("pipeline.generate_parquet._write_json_atomic")
+    def test_save_ledger_after_success_writes_on_success(self, mock_write):
+        save_ledger_after_success(
+            ledger_path="ledger.json",
+            next_ledger={"schema_version": 1},
+            generation_summary={"failed": 0},
+        )
+        mock_write.assert_called_once_with("ledger.json", {"schema_version": 1})
+             
     def test_replace_existing_ref_directory_atomically(self):
         """Existing final directory is removed and replaced by tmp file."""
         with tempfile.TemporaryDirectory() as td:
@@ -450,6 +516,48 @@ class TestGenerateParquet(unittest.TestCase):
         mock_open_vz.assert_called()
         self.assertIsInstance(mock_open_vz.call_args[1]["parser"], HDFParser)
 
+    @patch("pipeline.generate_parquet.select_parser")
+    @patch("pipeline.generate_parquet.s3fs.S3FileSystem")
+    def test_generate_reference_for_object_returns_failed_on_exception(self, mock_s3fs, mock_select):
+        mock_select.side_effect = RuntimeError("boom")
+
+        registry = MagicMock()
+
+        with tempfile.TemporaryDirectory() as td:
+            result = generate_reference_for_object(
+                source_key="test/data.nc",
+                bucket="my-bucket",
+                access_key="ak",
+                secret_key="sk",
+                s3_config={"endpoint_url": "https://example.endpoint"},
+                registry=registry,
+                staging_volume_path=str(Path(td) / "staging"),
+                temp_path=str(Path(td) / "temp"),
+                current_objects={"test/data.nc": {"flow_id": "flow1"}},
+                record_size=10,
+                categorical_threshold=10,
+            )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("RuntimeError: boom", result["error"])
+
+    def test_remove_deleted_references_removed_and_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            staging = Path(td)
+            # existing reference file
+            ref_key = "a/b.nc"
+            ref_path = staging / reference_relpath_for_key(ref_key)
+            ref_path.parent.mkdir(parents=True, exist_ok=True)
+            ref_path.write_text("x", encoding="utf-8")
+
+            summary = remove_deleted_references(
+                staging_volume_path=str(staging),
+                deleted_keys=[ref_key, "missing.nc"],
+            )
+
+            self.assertEqual(summary["removed"], 1)
+            self.assertEqual(summary["missing"], 1)
+            self.assertFalse(ref_path.exists())
 
 if __name__ == "__main__":
     unittest.main()
