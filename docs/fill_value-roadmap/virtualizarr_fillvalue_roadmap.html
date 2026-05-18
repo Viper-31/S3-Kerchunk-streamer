@@ -1,0 +1,259 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VirtualiZarr fill-value roadmap</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<h2 class="sr-only">VirtualiZarr fill-value roadmap — pipeline, root-cause clusters A–H, and 6-phase fix plan</h2>
+
+<div style="padding:1rem 0 0">
+
+<div class="sect">
+  <div class="sect-title">The pipeline — where the data flows</div>
+  <div class="pipeline">
+    <div class="pipe-box">
+      <div class="label">HDF5 / NetCDF4</div>
+      <div class="sub">Your weather .nc files</div>
+    </div>
+    <div class="pipe-arr">→</div>
+    <div class="pipe-box" style="border-color:var(--color-border-warning)">
+      <div class="label">VirtualiZarr</div>
+      <div class="sub">Parses file metadata, extracts fill values, writes Zarr JSON</div>
+    </div>
+    <div class="pipe-arr">→</div>
+    <div class="pipe-box">
+      <div class="label">Zarr metadata</div>
+      <div class="sub">JSON on disk / in Kerchunk / Icechunk</div>
+    </div>
+    <div class="pipe-arr">→</div>
+    <div class="pipe-box" style="border-color:var(--color-border-info)">
+      <div class="label">xarray</div>
+      <div class="sub">FillValueCoder reads metadata, opens your Dataset</div>
+    </div>
+  </div>
+  <p style="font-size:12px;color:var(--color-text-tertiary);margin:8px 0 0">Most errors surface at the final arrow — but the <strong style="color:var(--color-text-secondary)">root cause</strong> is usually upstream in how VirtualiZarr parsed or encoded the fill value.</p>
+</div>
+
+<div class="break-line">What is a fill value? — The "missing data" sentinel stored in array metadata (e.g. NaN, −9999, b"")</div>
+
+<div class="sect" style="margin-top:1rem">
+  <div class="sect-title">Root-cause clusters — click any to expand</div>
+  <div class="legend">
+    <span class="leg"><span class="leg-dot leg-vz"></span>VirtualiZarr bug — fix here</span>
+    <span class="leg"><span class="leg-dot leg-up"></span>Upstream (xarray/spec) — advocate, no VZ PR</span>
+    <span class="leg"><span class="leg-dot leg-ar"></span>Architectural — design decision needed</span>
+  </div>
+  <div class="cluster-grid">
+
+    <div class="cluster" onclick="toggle(this)">
+      <div class="cluster-head">
+        <span class="badge vz">A</span>
+        <span class="cluster-title">Parser crashes on fill extraction</span>
+        <span class="cluster-attr attr-vz">VZ bug</span>
+        <span class="chevron">›</span>
+      </div>
+      <div class="cluster-body">
+        <p><strong>What happens:</strong> The HDF5 parser blows up <em>before</em> it even produces output — it throws an exception while reading the fill value out of the file.</p>
+        <p><strong>Concrete triggers:</strong></p>
+        <p>① Arrays with dtype <code>U1</code> (single-char Unicode strings) — the parser doesn't know how to turn a bytes/str fill into something Zarr understands.<br>
+        ② Structured ("compound") dtypes — a comparison like <code>v == "DIMENSION_SCALE"</code> explodes when <code>v</code> is a void/struct scalar.</p>
+        <p><strong>Fix:</strong> Small guard clauses, ~5–15 lines each. PR #988 covers ①. ② is a new finding, no issue yet.</p>
+        <div class="issues"><a class="issue-chip" href="https://github.com/zarr-developers/VirtualiZarr/issues/878" target="_blank">#878 dtype U1</a></div>
+      </div>
+    </div>
+
+    <div class="cluster" onclick="toggle(this)">
+      <div class="cluster-head">
+        <span class="badge vz">B</span>
+        <span class="cluster-title">Byte-string fill values encoded wrong</span>
+        <span class="cluster-attr attr-vz">VZ bug</span>
+        <span class="chevron">›</span>
+      </div>
+      <div class="cluster-body">
+        <p><strong>What happens:</strong> The parser produces output this time, but the fill value is in the wrong format. xarray expects byte-string fills to be base64-encoded (an old HDF5 convention). VirtualiZarr isn't doing that for kind-S dtypes.</p>
+        <p><strong>Effect:</strong> xarray throws a "base64 assertion" error downstream when it tries to open the dataset.</p>
+        <p><strong>Fix:</strong> Add a base64 encoding step in the HDF parser for S-kind (fixed-length byte-string) fill values. Documented in <code>docs/custom_parsers.md</code>.</p>
+        <div class="issues"><a class="issue-chip" href="https://github.com/zarr-developers/VirtualiZarr/issues/785" target="_blank">#785 encoding error</a><a class="issue-chip" href="https://github.com/zarr-developers/VirtualiZarr/issues/628" target="_blank">#628 Icechunk</a></div>
+      </div>
+    </div>
+
+    <div class="cluster" onclick="toggle(this)">
+      <div class="cluster-head">
+        <span class="badge upstream">C</span>
+        <span class="cluster-title">xarray rejects valid Zarr fill values</span>
+        <span class="cluster-attr attr-up">Upstream</span>
+        <span class="chevron">›</span>
+      </div>
+      <div class="cluster-body">
+        <p><strong>What happens:</strong> VirtualiZarr produces <em>spec-correct</em> Zarr JSON — e.g. <code>"fill_value": null</code> or <code>"fill_value": 0.0</code> as a plain number. The Zarr spec allows this. But xarray's <code>FillValueCoder.decode</code> was written assuming the HDF5-style encoding (base64 bytes for floats, etc.) and rejects JSON-native scalars.</p>
+        <p><strong>Key point:</strong> This is <strong>not a VirtualiZarr bug</strong>. VZ is correct. xarray needs to learn to read what the Zarr spec actually allows. Tracked at pydata/xarray#11332.</p>
+        <p><strong>Action:</strong> Engage with xarray maintainers. No VirtualiZarr PR needed here — the property-test suite's <code>BothEnginesFailedIdenticallyError</code> auto-resolves when xarray ships the fix.</p>
+        <div class="issues"><a class="issue-chip" href="https://github.com/zarr-developers/VirtualiZarr/issues/485" target="_blank">#485 notebook</a><a class="issue-chip" href="https://github.com/zarr-developers/VirtualiZarr/issues/989" target="_blank">#989 null</a></div>
+      </div>
+    </div>
+
+    <div class="cluster" onclick="toggle(this)">
+      <div class="cluster-head">
+        <span class="badge vz">D</span>
+        <span class="cluster-title">h5py default fills propagated blindly</span>
+        <span class="cluster-attr attr-vz">VZ bug</span>
+        <span class="chevron">›</span>
+      </div>
+      <div class="cluster-body">
+        <p><strong>What happens:</strong> When an HDF5 file doesn't explicitly define a fill value, h5py still returns a default (0, 0.0, b"", etc.). VirtualiZarr copies that default into the Zarr metadata as if the file author set it intentionally.</p>
+        <p><strong>Why it matters:</strong> A fill value that was never in the original file ends up in the Zarr metadata. This then hits Cluster C — xarray sees a JSON-native scalar it didn't expect. It also pollutes the metadata with values the user never asked for.</p>
+        <p><strong>Fix:</strong> Call <code>dataset.id.get_create_plist().fill_value_defined()</code> — h5py's API for asking "did the file author actually set this?" — and only propagate the fill if they did.</p>
+      </div>
+    </div>
+
+    <div class="cluster" onclick="toggle(this)">
+      <div class="cluster-head">
+        <span class="badge arch">E</span>
+        <span class="cluster-title">Different parsers, different fills</span>
+        <span class="cluster-attr attr-ar">Architectural</span>
+        <span class="chevron">›</span>
+      </div>
+      <div class="cluster-body">
+        <p><strong>What happens:</strong> The same source file opened via the HDF parser, the NetCDF3 parser, the DMR parser, or Kerchunk can produce different fill values — or none at all. There is no shared contract for "what must a parser emit".</p>
+        <p><strong>Example:</strong> A datetime variable with a missing timestep comes out as NaT via one parser and as some integer via another.</p>
+        <p><strong>Fix:</strong> Extend the property-test suite to cover all parsers (Kerchunk, TIFF, etc.). Port the HDFParser conventions to the others. Document the expected contract in <code>docs/custom_parsers.md</code>.</p>
+        <div class="issues"><a class="issue-chip" href="https://github.com/zarr-developers/VirtualiZarr/issues/287" target="_blank">#287 Kerchunk</a><a class="issue-chip" href="https://github.com/zarr-developers/VirtualiZarr/issues/352" target="_blank">#352 NaT</a><a class="issue-chip" href="https://github.com/zarr-developers/VirtualiZarr/issues/982" target="_blank">#982 netcdf3</a></div>
+      </div>
+    </div>
+
+    <div class="cluster" onclick="toggle(this)">
+      <div class="cluster-head">
+        <span class="badge arch">F</span>
+        <span class="cluster-title">Writers don't preserve fill semantics</span>
+        <span class="cluster-attr attr-ar">Architectural</span>
+        <span class="chevron">›</span>
+      </div>
+      <div class="cluster-body">
+        <p><strong>What happens:</strong> When VirtualiZarr writes to Kerchunk (<code>to_kerchunk()</code>) or Icechunk, the fill value information is lost or corrupted — NaN appears in places it shouldn't, or <code>null</code> (a valid fill) gets coerced to a number.</p>
+        <p><strong>Fix:</strong> The Icechunk and Kerchunk writer APIs need to faithfully round-trip fill semantics from the parsed metadata.</p>
+        <div class="issues"><a class="issue-chip" href="https://github.com/zarr-developers/VirtualiZarr/issues/339" target="_blank">#339 NaN in parquet</a><a class="issue-chip" href="https://github.com/zarr-developers/VirtualiZarr/issues/478" target="_blank">#478 null coercion</a></div>
+      </div>
+    </div>
+
+    <div class="cluster" onclick="toggle(this)">
+      <div class="cluster-head">
+        <span class="badge arch">G</span>
+        <span class="cluster-title">Attributes lost in JSON serialization</span>
+        <span class="cluster-attr attr-ar">Architectural</span>
+        <span class="chevron">›</span>
+      </div>
+      <div class="cluster-body">
+        <p><strong>What happens:</strong> Zarr v3 metadata is JSON. JSON can only hold strings, numbers, booleans, and null. Some HDF5 attributes are richer — e.g. a <code>float32</code> scalar widens silently to <code>float64</code> in JSON, or a non-serializable object is dropped entirely.</p>
+        <p><strong>Fix needed:</strong> A policy decision — how should VirtualiZarr handle attributes it cannot represent in JSON? Drop them? Warn? Store them as an encoded string? This needs a design doc, not just a code change.</p>
+        <div class="issues"><a class="issue-chip" href="https://github.com/zarr-developers/VirtualiZarr/issues/715" target="_blank">#715 non-JSON attrs</a></div>
+      </div>
+    </div>
+
+    <div class="cluster" onclick="toggle(this)">
+      <div class="cluster-head">
+        <span class="badge upstream">H</span>
+        <span class="cluster-title">No unified encoding model</span>
+        <span class="cluster-attr attr-up">Meta / cross-cutting</span>
+        <span class="chevron">›</span>
+      </div>
+      <div class="cluster-body">
+        <p><strong>What happens:</strong> There's no single place that says "here is the contract: this is what fill values must look like in VirtualiZarr output, across every parser and every writer". Each component grew independently.</p>
+        <p><strong>This is the root root cause</strong> — clusters A–G are symptoms. H closes automatically once all the others are resolved and the contract is documented.</p>
+        <div class="issues"><a class="issue-chip" href="https://github.com/zarr-developers/VirtualiZarr/issues/68" target="_blank">#68 encoding model</a></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="sect">
+  <div class="sect-title">The fix roadmap — 6 phases</div>
+  <ul class="phase-list">
+
+    <li class="phase-item">
+      <div class="phase-line">
+        <div class="phase-dot" style="background:#FAECE7;color:#993C1D">1</div>
+        <div class="phase-stem"></div>
+      </div>
+      <div class="phase-content">
+        <div class="phase-title">Local parser fixes <span style="font-size:12px;font-weight:400;color:var(--color-text-tertiary)">— low risk, ~50 lines total</span></div>
+        <div class="phase-desc">Fix the crashes and encoding bugs in VirtualiZarr's HDF parser. PR #988 handles U1 strings. Still needed: the structured-dtype guard in <code>_extract_attrs</code>, the ZarrParser fill lookup, and S-dtype base64 encoding. Each is a small, self-contained change. Addresses clusters A + B.</div>
+        <span class="phase-status s-progress">⏳ In progress — PR #988 in review</span>
+      </div>
+    </li>
+
+    <li class="phase-item">
+      <div class="phase-line">
+        <div class="phase-dot" style="background:#E1F5EE;color:#0F6E56">2</div>
+        <div class="phase-stem"></div>
+      </div>
+      <div class="phase-content">
+        <div class="phase-title">Upstream advocacy <span style="font-size:12px;font-weight:400;color:var(--color-text-tertiary)">— parallel, no VZ PRs</span></div>
+        <div class="phase-desc">Engage with xarray (pydata/xarray#11332) to get <code>FillValueCoder.decode</code> to accept JSON-native scalars. Also engage with the Zarr spec discussions (zarr-specs#351, zarr-extensions#33) about an <code>Optional[T]</code> dtype for expressing "no fill" more cleanly. VirtualiZarr doesn't write any code here — just participates in the design conversation. Addresses cluster C.</div>
+        <span class="phase-status s-progress">⏳ Tracker open at xarray#11332</span>
+      </div>
+    </li>
+
+    <li class="phase-item">
+      <div class="phase-line">
+        <div class="phase-dot" style="background:#FAECE7;color:#993C1D">3</div>
+        <div class="phase-stem"></div>
+      </div>
+      <div class="phase-content">
+        <div class="phase-title">Stop propagating h5py defaults</div>
+        <div class="phase-desc">Use <code>fill_value_defined()</code> from h5py's create-property-list API to distinguish "the author set this fill" from "h5py invented this fill". Only write fills the author actually declared. Addresses cluster D, removes one cascade into cluster C.</div>
+        <span class="phase-status s-open">Open</span>
+      </div>
+    </li>
+
+    <li class="phase-item">
+      <div class="phase-line">
+        <div class="phase-dot" style="background:#EEEDFE;color:#3C3489">4</div>
+        <div class="phase-stem"></div>
+      </div>
+      <div class="phase-content">
+        <div class="phase-title">Cross-parser consistency</div>
+        <div class="phase-desc">Extend the new property-test suite (PR #990) to cover Kerchunk, TIFF, and other parsers. Port the HDFParser fill conventions to each one. Document the expected contract in <code>docs/custom_parsers.md</code> so future parser authors know exactly what they must produce. Addresses cluster E.</div>
+        <span class="phase-status s-open">Open — test infra ready (PR #990 ✅)</span>
+      </div>
+    </li>
+
+    <li class="phase-item">
+      <div class="phase-line">
+        <div class="phase-dot" style="background:#EEEDFE;color:#3C3489">5</div>
+        <div class="phase-stem"></div>
+      </div>
+      <div class="phase-content">
+        <div class="phase-title">Writer-side round-trips</div>
+        <div class="phase-desc">Make Icechunk and Kerchunk writers faithfully preserve fill semantics from parsed metadata. A fill value that entered the pipeline at the parser must come out the other end unchanged. Addresses cluster F.</div>
+        <span class="phase-status s-open">Open</span>
+      </div>
+    </li>
+
+    <li class="phase-item">
+      <div class="phase-line">
+        <div class="phase-dot" style="background:#EEEDFE;color:#3C3489">6</div>
+        <div class="phase-stem"></div>
+      </div>
+      <div class="phase-content">
+        <div class="phase-title">Attribute fidelity policy</div>
+        <div class="phase-desc">Decide and document what VirtualiZarr does with attributes that don't survive JSON serialization — non-serializable objects, float32 scalars that widen to float64, etc. Likely involves a design doc and possibly a warning system. Addresses clusters G + H (H closes once all others resolve).</div>
+        <span class="phase-status s-open">Open</span>
+      </div>
+    </li>
+
+  </ul>
+</div>
+
+</div>
+
+<script>
+function toggle(el){el.classList.toggle('open')}
+</script>
+</body>
+</html>
