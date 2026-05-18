@@ -4,7 +4,6 @@ import unittest
 import tempfile
 import pytest
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 from pipeline.generate_parquet import (
@@ -14,20 +13,19 @@ from pipeline.generate_parquet import (
     prepare_temp_target,
     select_parser,
     build_vds_to_reference,
+    _write_json_atomic,
+    save_ledger_after_success,
     enrich_string_variables,
     commit_reference,
     validate_generation_inputs,
     _keys_to_generate,
     _resolve_workers,
-    generate_reference_for_object
-)
-from pipeline.inventory import (
-    diff_inventory,
-    load_ledger,
-    compute_snapshot_artifacts,
+    generate_reference_for_object,
+    remove_deleted_references
 )
 from pipeline.contracts import ContractError
 from utils.config_utils import load_pipeline_config
+
 
 # Try to import these for the specialized pickling test
 try:
@@ -37,7 +35,8 @@ except ImportError:
     ObjectStoreRegistry = None
     S3Store = None
 
-class TestKerchunkPipeline(unittest.TestCase):
+
+class TestGenerateParquet(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.config_path = Path("configs/config.yaml")
@@ -48,17 +47,17 @@ class TestKerchunkPipeline(unittest.TestCase):
                 "s3": {
                     "bucket": "weather",
                     "endpoint_url": "https://projects.pawsey.org.au",
-                    "region_name": "us-east-1"
+                    "region_name": "us-east-1",
                 },
                 "output": {
                     "ledger_path": "acacia_refs_staging/_state/inventory_ledger.json",
                     "staging_volume_path": "acacia_refs_staging",
-                    "temp_path": "acacia_refs_temp"
+                    "temp_path": "acacia_refs_temp",
                 },
                 "source_flows": [],
-                "execution": {"max_workers": "auto"}
+                "execution": {"max_workers": "auto"},
             }
-    
+
     @patch("pipeline.generate_parquet.build_vds_to_reference")
     @patch("pipeline.generate_parquet.select_parser")
     @patch("pipeline.generate_parquet.commit_reference")
@@ -87,7 +86,7 @@ class TestKerchunkPipeline(unittest.TestCase):
 
         # Verify that generate_reference_for_object passes config values down
         mock_build_vds.assert_called_once()
-        _, kwargs= mock_build_vds.call_args
+        _, kwargs = mock_build_vds.call_args
         self.assertEqual(kwargs["record_size"], config_record_size)
         self.assertEqual(kwargs["categorical_threshold"], config_cat_threshold)
 
@@ -105,32 +104,33 @@ class TestKerchunkPipeline(unittest.TestCase):
             "s3": {
                 "bucket": bucket,
                 "endpoint_url": self.kp["s3"]["endpoint_url"],
-                "region_name": self.kp.get("s3", {}).get("region_name", "us-east-1")
+                "region_name": self.kp.get("s3", {}).get("region_name", "us-east-1"),
             }
         }
         access_key = "test-access-key"
         secret_key = "test-secret-key"
-        
+
         print(f"\n--- Starting ObjectStoreRegistry Pickling Test (Bucket: {bucket}) ---")
         try:
             registry = _build_registry(test_kp, access_key, secret_key)
-            
+
             self.assertIsInstance(registry, ObjectStoreRegistry)
             # Check for .stores mapping which is the underlying container
             if hasattr(registry, "stores"):
                 self.assertIn(f"s3://{bucket}", registry.stores)
                 print("Registry stores validated.")
-            
+
             # Test pickling with standard pickle
             print("Testing pickling with standard pickle...")
             pickled = pickle.dumps(registry)
             unpickled = pickle.loads(pickled)
             self.assertIsInstance(unpickled, ObjectStoreRegistry)
             print("Standard pickle successful.")
-            
+
             # Test pickling with cloudpickle
             try:
                 import cloudpickle
+
                 print("Testing pickling with cloudpickle...")
                 cpickled = cloudpickle.dumps(registry)
                 cunpickled = cloudpickle.loads(cpickled)
@@ -138,7 +138,7 @@ class TestKerchunkPipeline(unittest.TestCase):
                 print("Cloudpickle successful.")
             except ImportError:
                 print("Cloudpickle not available, skipping that part of the test.")
-            
+
         except Exception as e:
             print(f"EXCEPTION during pickling test: {type(e).__name__}: {e}")
             traceback.print_exc()
@@ -240,7 +240,70 @@ class TestKerchunkPipeline(unittest.TestCase):
             self.assertFalse(tmp_ref_path.exists())
             self.assertTrue(final_ref_path.exists())
             self.assertEqual(final_ref_path.read_text(encoding="utf-8"), "new-bytes")
+    
+    @patch("pipeline.generate_parquet.time.sleep")
+    @patch("pipeline.generate_parquet.os.replace")
+    def test_commit_reference_permission_error_retries_then_succeeds(self, mock_replace, mock_sleep):
+        tmp_ref_path = Path("/tmp/a.tmp.parq")
+        final_ref_path = Path("/tmp/a.parq")
 
+        # Fail first 2 attempts, then succeed
+        mock_replace.side_effect = [PermissionError("locked"), PermissionError("locked"), None]
+
+        commit_reference(tmp_ref_path, final_ref_path)
+
+        self.assertEqual(mock_replace.call_count, 3)
+        # sleep should happen for attempts < retries - 1 (here: 2 sleeps)
+        self.assertEqual(mock_sleep.call_count, 2)
+        mock_sleep.assert_called_with(0.5)
+
+    @patch("pipeline.generate_parquet.time.sleep")
+    @patch("pipeline.generate_parquet.os.replace")
+    def test_commit_reference_permission_error_raises_last_attempt(self, mock_replace, mock_sleep):
+        tmp_ref_path = Path("/tmp/a.tmp.parq")
+        final_ref_path = Path("/tmp/a.parq")
+
+        # Fail all 5 attempts
+        mock_replace.side_effect = PermissionError("locked")
+
+        with self.assertRaises(PermissionError):
+            commit_reference(tmp_ref_path, final_ref_path)
+
+        self.assertEqual(mock_replace.call_count, 5)
+        # sleep should happen for attempts 0..3 (4 sleeps)
+        self.assertEqual(mock_sleep.call_count, 4)
+        mock_sleep.assert_called_with(0.5)
+
+    @patch("pipeline.generate_parquet.os.replace")
+    def test_write_json_atomic_uses_temp_and_replace(self, mock_replace):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "ledger.json"
+            payload = {"a": 1}
+
+            _write_json_atomic(str(target), payload)
+
+            tmp = target.with_suffix(target.suffix + ".tmp")
+            # temp file should have been created/written before replace
+            self.assertTrue(tmp.exists())
+            mock_replace.assert_called_once_with(tmp, target)
+    
+    def test_save_ledger_after_success_raises_on_failures(self):
+        with self.assertRaises(RuntimeError):
+            save_ledger_after_success(
+                ledger_path="ledger.json",
+                next_ledger={"schema_version": 1},
+                generation_summary={"failed": 1},
+            )
+
+    @patch("pipeline.generate_parquet._write_json_atomic")
+    def test_save_ledger_after_success_writes_on_success(self, mock_write):
+        save_ledger_after_success(
+            ledger_path="ledger.json",
+            next_ledger={"schema_version": 1},
+            generation_summary={"failed": 0},
+        )
+        mock_write.assert_called_once_with("ledger.json", {"schema_version": 1})
+             
     def test_replace_existing_ref_directory_atomically(self):
         """Existing final directory is removed and replaced by tmp file."""
         with tempfile.TemporaryDirectory() as td:
@@ -381,7 +444,7 @@ class TestKerchunkPipeline(unittest.TestCase):
             "new": ["a.nc", "b.nc"],
             "changed": ["c.nc"],
             "deleted": ["d.nc"],
-            "unchanged": ["e.nc"]
+            "unchanged": ["e.nc"],
         }
         source_keys = _keys_to_generate(diff)
         self.assertEqual(source_keys, ["a.nc", "b.nc", "c.nc"])
@@ -408,73 +471,7 @@ class TestKerchunkPipeline(unittest.TestCase):
         self.assertGreaterEqual(_resolve_workers(None), 1)
         self.assertGreaterEqual(_resolve_workers("auto"), 1)
 
-    def test_diff_inventory(self):
-        """Test the inventory diffing logic."""
-        previous = {
-            "old.nc": {"etag": "e1", "last_modified": "t1", "size": 100},
-            "changed.nc": {"etag": "e2", "last_modified": "t2", "size": 200},
-            "deleted.nc": {"etag": "e3", "last_modified": "t3", "size": 300}
-        }
-        current = {
-            "old.nc": {"etag": "e1", "last_modified": "t1", "size": 100},
-            "changed.nc": {"etag": "e2-new", "last_modified": "t2", "size": 200},
-            "new.nc": {"etag": "e4", "last_modified": "t4", "size": 400},
-        }
-        diff = diff_inventory(previous, current)
-        self.assertEqual(diff["new"], ["new.nc"])
-        self.assertEqual(diff["changed"], ["changed.nc"])
-        self.assertEqual(diff["deleted"], ["deleted.nc"])
-        self.assertEqual(diff["unchanged"], ["old.nc"])
-
-    def test_compute_snapshot_artifacts_builds_expected_diff_and_counts(self):
-        """Pure transform: verify inventory diff and summary counts are correct."""
-        previous_objects = {
-            "stable.nc": {"etag": "e1", "last_modified": "t1", "size": 100, "flow_id": "f1"},
-            "changed.nc": {"etag": "e2", "last_modified": "t2", "size": 200, "flow_id": "f1"},
-            "deleted.nc": {"etag": "e3", "last_modified": "t3", "size": 300, "flow_id": "f2"},
-        }
-        current_objects = {
-            "stable.nc": {"etag": "e1", "last_modified": "t1", "size": 100, "flow_id": "f1"},
-            "changed.nc": {"etag": "e2-new", "last_modified": "t2", "size": 200, "flow_id": "f1"},
-            "new.nc": {"etag": "e4", "last_modified": "t4", "size": 400, "flow_id": "f2"},
-        }
-
-        artifacts = compute_snapshot_artifacts(
-            previous_objects=previous_objects,
-            current_objects=current_objects,
-            bucket="weather",
-        )
-
-        self.assertEqual(artifacts["diff"]["new"], ["new.nc"])
-        self.assertEqual(artifacts["diff"]["changed"], ["changed.nc"])
-        self.assertEqual(artifacts["diff"]["deleted"], ["deleted.nc"])
-        self.assertEqual(artifacts["diff"]["unchanged"], ["stable.nc"])
-        self.assertEqual(artifacts["summary"]["scanned"], 3)
-        self.assertEqual(artifacts["summary"]["new"], 1)
-        self.assertEqual(artifacts["summary"]["changed"], 1)
-        self.assertEqual(artifacts["summary"]["deleted"], 1)
-        self.assertEqual(artifacts["summary"]["unchanged"], 1)
-
-    def test_compute_snapshot_artifacts_returns_next_ledger_with_contract_shape(self):
-        """Pure transform: next_ledger keeps expected schema/bucket/objects contract."""
-        previous_objects = {}
-        current_objects = {
-            "only.nc": {"etag": "e1", "last_modified": "t1", "size": 10, "flow_id": "f1"},
-        }
-
-        artifacts = compute_snapshot_artifacts(
-            previous_objects=previous_objects,
-            current_objects=current_objects,
-            bucket="weather",
-        )
-
-        next_ledger = artifacts["next_ledger"]
-        self.assertEqual(next_ledger["schema_version"], 1)
-        self.assertEqual(next_ledger["bucket"], "weather")
-        self.assertEqual(next_ledger["objects"], current_objects)
-        self.assertIsInstance(next_ledger["updated_at"], str)
-
-    @patch("pipeline.generate_parquet.xr.open_dataset")    
+    @patch("pipeline.generate_parquet.xr.open_dataset")
     @patch("pipeline.generate_parquet.vz.open_virtual_dataset")
     @patch("pipeline.generate_parquet.os.replace")
     @patch("pipeline.generate_parquet.Path.mkdir")
@@ -484,7 +481,7 @@ class TestKerchunkPipeline(unittest.TestCase):
         # Setup mock Virtual Dataset context manager
         mock_vds = MagicMock()
         mock_open_vz.return_value = mock_vds
-        
+
         mock_dataset = MagicMock()
         mock_dataset.variables = {}
         mock_xr_open.return_value = mock_dataset
@@ -506,26 +503,61 @@ class TestKerchunkPipeline(unittest.TestCase):
                 temp_path=str(Path(td) / "temp"),
                 current_objects={"test/data.nc": {"flow_id": "flow1"}},
                 record_size=record_size,
-                categorical_threshold=cat_thresh
+                categorical_threshold=cat_thresh,
             )
-        
+
         self.assertEqual(result["status"], "generated")
         self.assertEqual(result["source_key"], "test/data.nc")
         # Ensure to_kerchunk was called
         mock_vds.vz.to_kerchunk.assert_called_once()
         # Check that we tried to use HDFParser (first in list)
         from virtualizarr.parsers import HDFParser
+
         mock_open_vz.assert_called()
         self.assertIsInstance(mock_open_vz.call_args[1]["parser"], HDFParser)
 
-    @patch("pathlib.Path.exists")
-    @patch("pathlib.Path.open")
-    def test_load_ledger_missing(self, mock_open, mock_exists):
-        """Test loading ledger when it doesn't exist."""
-        mock_exists.return_value = False
-        ledger = load_ledger("missing_ledger.json")
-        self.assertEqual(ledger["objects"], {})
-        self.assertEqual(ledger["schema_version"], 1)
+    @patch("pipeline.generate_parquet.select_parser")
+    @patch("pipeline.generate_parquet.s3fs.S3FileSystem")
+    def test_generate_reference_for_object_returns_failed_on_exception(self, mock_s3fs, mock_select):
+        mock_select.side_effect = RuntimeError("boom")
+
+        registry = MagicMock()
+
+        with tempfile.TemporaryDirectory() as td:
+            result = generate_reference_for_object(
+                source_key="test/data.nc",
+                bucket="my-bucket",
+                access_key="ak",
+                secret_key="sk",
+                s3_config={"endpoint_url": "https://example.endpoint"},
+                registry=registry,
+                staging_volume_path=str(Path(td) / "staging"),
+                temp_path=str(Path(td) / "temp"),
+                current_objects={"test/data.nc": {"flow_id": "flow1"}},
+                record_size=10,
+                categorical_threshold=10,
+            )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("RuntimeError: boom", result["error"])
+
+    def test_remove_deleted_references_removed_and_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            staging = Path(td)
+            # existing reference file
+            ref_key = "a/b.nc"
+            ref_path = staging / reference_relpath_for_key(ref_key)
+            ref_path.parent.mkdir(parents=True, exist_ok=True)
+            ref_path.write_text("x", encoding="utf-8")
+
+            summary = remove_deleted_references(
+                staging_volume_path=str(staging),
+                deleted_keys=[ref_key, "missing.nc"],
+            )
+
+            self.assertEqual(summary["removed"], 1)
+            self.assertEqual(summary["missing"], 1)
+            self.assertFalse(ref_path.exists())
 
 if __name__ == "__main__":
     unittest.main()
