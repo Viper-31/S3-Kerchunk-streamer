@@ -1,4 +1,3 @@
-# Run with: python -m pytest -s -m e2e tests/dry_run_kerchunk.py 
 # End-to-end dry run test with sample DPIRD and ECMWF datasets
 import os
 import time

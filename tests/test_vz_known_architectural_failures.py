@@ -9,6 +9,8 @@ sys.path.insert(0, str(repo_root))
 from utils.config_utils import load_pipeline_config, resolve_secrets
 from pipeline import generate_parquet as gp
 
+pytestmark= pytest.mark.e2e
+
 def _known_virtualizarr_Parser_failure(err: Exception) -> bool:
     """
     Error message checking that it contains either:
