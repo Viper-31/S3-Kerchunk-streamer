@@ -27,8 +27,9 @@ dependencies=[
 pythonpath= "."
 testpaths= ["tests"]
 
-addopts= "-m 'not e2e' --cov=pipeline --cov-report=term --cov-report=html"
-# Use -m "" to include e2e tests
+addopts= "--cov-branch --cov=pipeline --cov-report=term --cov-report=html"
+# Use pytest -m 'not e2e' to exclude dry-run e2e tests
+# Use pytest -m 'e2e' for just dry-run e2e tests
 
 # Register markers to avoid warnings
 markers= [
