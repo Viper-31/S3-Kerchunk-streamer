@@ -1,3 +1,28 @@
+[project]
+name = "S3-Kerchunk-Streamer"
+version = "0.1.0"
+description = "VirtualiZarr + Kerchunk to generate Parquet refs of S3 objects"
+requires-python = ">=3.12"
+readme= "README.md"
+dependencies=[
+    "boto3>=1.42.0",
+    "dask>=2026.3.0",
+    "distributed>=2026.3.0",
+    "fastparquet>=2026.3.0",
+    "fsspec>=2026.3.0",
+    "h5netcdf>=1.8.1",
+    "h5py>=3.16.0",
+    "kerchunk>=0.2.10",
+    "obspec>=0.1.0",
+    "obspec-utils>=0.9.0",
+    "obstore>=0.9.4",
+    "pytest-cov>=7.1.0",
+    "s3fs>=2026.3.0",
+    "virtualizarr>=2.6.1",
+    "xarray>=2026.4.0",
+    "zarr>=3.2.0",
+]
+
 [tool.pytest.ini_options]
 pythonpath= "."
 testpaths= ["tests"]
