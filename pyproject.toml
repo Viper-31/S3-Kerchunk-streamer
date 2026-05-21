@@ -35,3 +35,9 @@ markers= [
     "e2e: end-to-end integration tests that run against sample S3 targets",
     "integration: tests that require external dependencies or complex setups"
     ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+]

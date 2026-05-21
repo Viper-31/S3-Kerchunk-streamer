@@ -1411,6 +1411,12 @@ dependencies = [
     { name = "zarr" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "boto3", specifier = ">=1.42.0" },
@@ -1429,6 +1435,12 @@ requires-dist = [
     { name = "virtualizarr", specifier = ">=2.6.1" },
     { name = "xarray", specifier = ">=2026.4.0" },
     { name = "zarr", specifier = ">=3.2.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9.0.3" },
+    { name = "pytest-cov", specifier = ">=7.1.0" },
 ]
 
 [[package]]
