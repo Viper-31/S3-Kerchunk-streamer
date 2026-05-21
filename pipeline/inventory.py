@@ -16,17 +16,20 @@ from pipeline.contracts import ObjectRecord
 
 LEDGER_SCHEMA_VERSION = 1
 
-"""Return current UTC timestamp in ISO format."""
+
 def _utc_now_iso() -> str:
+    """Return current UTC timestamp in ISO format."""
     return datetime.now(UTC).isoformat()
+
 
 def _normalise_etag(raw: str | None) -> str:
     if not raw:
         return ""
-    return raw.strip ('"')
+    return raw.strip('"')
 
-"""Normalize metadata timestamps into UTC ISO strings for stable comparisons."""
+
 def _to_iso_utc(value: Any) -> str:
+    """Normalize metadata timestamps into UTC ISO strings for stable comparisons."""
     if isinstance(value, datetime):
         if value.tzinfo is None:
             value = value.replace(tzinfo=UTC)
@@ -42,8 +45,9 @@ def _object_record_to_row(record: ObjectRecord) -> dict[str, Any]:
         "flow_id": record.flow_id,
     }
 
-"""Create both s3fs and boto3 clients from the validated config and secrets."""
+
 def build_storage_clients(kp: dict[str, Any], access_key: str, secret_key: str):
+    """Create both s3fs and boto3 clients from the validated config and secrets."""
     s3_cfg = kp["s3"]
 
     client_kwargs = {
@@ -72,8 +76,9 @@ def build_storage_clients(kp: dict[str, Any], access_key: str, secret_key: str):
 
     return fs, s3_client
 
-"""Load ledger from disk, or initialize an empty structure if it is missing."""
+
 def load_ledger(ledger_path: str) -> dict[str, Any]:
+    """Load ledger from disk, or initialize an empty structure if it is missing."""
     p = Path(ledger_path)
     if not p.exists():
         return {
@@ -85,26 +90,27 @@ def load_ledger(ledger_path: str) -> dict[str, Any]:
         payload = json.load(fh)
         if not isinstance(payload, dict):
             raise ValueError("Ledger file must contain a JSON object at the root")
-    
+
     if payload.get("schema_version") != LEDGER_SCHEMA_VERSION:
         raise ValueError(
             f"Unsupported ledger schema version= {payload.get('schema_version')}, "
             f"expected {LEDGER_SCHEMA_VERSION}"
         )
-    
+
     objects = payload.get("objects", {})
     if not isinstance(objects, dict):
         raise ValueError("Ledger objects must be a dict keyed by a source key")
-    
+
     return payload
 
-"""Yield NetCDF objects matching glob flow selectors"""
+
 def _iter_prefix_glob_objects(
-        s3_client: Any,
-        bucket: str,
-        flow: dict[str, Any],
-        page_size: int,
+    s3_client: Any,
+    bucket: str,
+    flow: dict[str, Any],
+    page_size: int,
 ):
+    """Yield NetCDF objects matching glob flow selectors"""
     flow_id = flow["id"]
     prefix = flow["prefix"]
     pattern = flow["key_glob"]
@@ -118,7 +124,7 @@ def _iter_prefix_glob_objects(
 
     for page in pages:
         for obj in page.get("Contents", []):
-            key= obj["Key"]
+            key = obj["Key"]
             if not key.endswith(".nc"):
                 continue
             if not fnmatch.fnmatchcase(key, pattern):
@@ -131,15 +137,14 @@ def _iter_prefix_glob_objects(
                 flow_id=flow_id,
             )
 
-"""
-Yield NetCDF objects matching regex flow selectors.
-"""
+
 def _iter_prefix_regex_objects(
-        s3_client: Any,
-        bucket: str,
-        flow: dict[str, Any],
-        page_size: int,
+    s3_client: Any,
+    bucket: str,
+    flow: dict[str, Any],
+    page_size: int,
 ):
+    """Yield NetCDF objects matching regex flow selectors."""
     flow_id = flow["id"]
     prefix = flow["prefix"]
     pattern = re.compile(flow["key_regex"])
@@ -168,8 +173,9 @@ def _iter_prefix_regex_objects(
                 flow_id=flow_id,
             )
 
-"""Yield a singleton NetCDF object from an exact-key flow definition."""
+
 def _iter_exact_key_object(s3_client: Any, bucket: str, flow: dict[str, Any]):
+    """Yield a singleton NetCDF object from an exact-key flow definition."""
     key = flow["exact_key"]
     if not key.endswith(".nc"):
         return
@@ -190,8 +196,9 @@ def _iter_exact_key_object(s3_client: Any, bucket: str, flow: dict[str, Any]):
         flow_id=flow["id"],
     )
 
-"""Scan all enabled flows and return object metadata keyed by source key."""
+
 def scan_inventory(kp: dict[str, Any], s3_client: Any) -> dict[str, dict[str, Any]]:
+    """Scan all enabled flows and return object metadata keyed by source key."""
     bucket = kp["s3"]["bucket"]
     page_size = int(kp.get("execution", {}).get("list_page_size", 1000))
     objects_by_key: dict[str, dict[str, Any]] = {}
@@ -203,8 +210,8 @@ def scan_inventory(kp: dict[str, Any], s3_client: Any) -> dict[str, dict[str, An
         mode = flow["mode"]
         if mode == "prefix_regex":
             iterator = _iter_prefix_regex_objects(s3_client, bucket, flow, page_size)
-        elif mode== "prefix_glob":
-            iterator= _iter_prefix_glob_objects(s3_client, bucket, flow, page_size)
+        elif mode == "prefix_glob":
+            iterator = _iter_prefix_glob_objects(s3_client, bucket, flow, page_size)
         elif mode == "exact_key":
             iterator = _iter_exact_key_object(s3_client, bucket, flow)
         else:
@@ -220,21 +227,21 @@ def scan_inventory(kp: dict[str, Any], s3_client: Any) -> dict[str, dict[str, An
 
     return objects_by_key
 
-"""Return the diff fingerprint tuple used for change detection."""
+
 def _fingerprint(record: dict[str, Any]) -> tuple[str, str, int]:
+    """Return the diff fingerprint tuple used for change detection."""
     return (
         str(record.get("etag", "")),
         str(record.get("last_modified", "")),
         int(record.get("size", 0)),
     )
 
-"""
-Compute new, changed, deleted, and unchanged keys between ledger snapshots.
-"""
+
 def diff_inventory(
     previous_objects: dict[str, dict[str, Any]],
     current_objects: dict[str, dict[str, Any]],
 ) -> dict[str, list[str]]:
+    """Compute new, changed, deleted, and unchanged keys between ledger snapshots."""
     prev_keys = set(previous_objects.keys())
     curr_keys = set(current_objects.keys())
 
@@ -257,13 +264,14 @@ def diff_inventory(
         "unchanged": unchanged_keys,
     }
 
-"""Build diff, next-ledger payload, and summary from object snapshots."""
+
 def compute_snapshot_artifacts(
     *,
     previous_objects: dict[str, dict[str, Any]],
     current_objects: dict[str, dict[str, Any]],
     bucket: str,
 ) -> dict[str, Any]:
+    """Build diff, next-ledger payload, and summary from object snapshots."""
     diff = diff_inventory(previous_objects, current_objects)
 
     next_ledger = {
@@ -287,14 +295,16 @@ def compute_snapshot_artifacts(
         "summary": summary,
     }
 
-"""
-Build the current inventory snapshot and diff it against the previous ledger in specified config ledger_path. 
-"""
+
 def build_inventory_snapshot_and_diff(
     kp: dict[str, Any],
     access_key: str,
     secret_key: str,
 ) -> dict[str, Any]:
+    """
+    Build the current inventory snapshot.
+    Then diff it against the previous ledger in specified config ledger_path.
+    """
     fs, s3_client = build_storage_clients(kp, access_key, secret_key)
 
     previous_ledger = load_ledger(kp["output"]["ledger_path"])

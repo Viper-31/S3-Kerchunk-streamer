@@ -21,7 +21,7 @@ from pipeline.generate_parquet import (
     _keys_to_generate,
     _resolve_workers,
     generate_reference_for_object,
-    remove_deleted_references
+    remove_deleted_references,
 )
 from pipeline.contracts import ContractError
 from utils.config_utils import load_pipeline_config
@@ -61,7 +61,9 @@ class TestGenerateParquet(unittest.TestCase):
     @patch("pipeline.generate_parquet.build_vds_to_reference")
     @patch("pipeline.generate_parquet.select_parser")
     @patch("pipeline.generate_parquet.commit_reference")
-    def test_config_propagation_to_generation(self, mock_commit, mock_select_parser, mock_build_vds):
+    def test_config_propagation_to_generation(
+        self, mock_commit, mock_select_parser, mock_build_vds
+    ):
         """Test that execution configuration parameters map correctly from config.yaml to generation."""
         mock_select_parser.return_value = (MagicMock(), [])
 
@@ -110,7 +112,9 @@ class TestGenerateParquet(unittest.TestCase):
         access_key = "test-access-key"
         secret_key = "test-secret-key"
 
-        print(f"\n--- Starting ObjectStoreRegistry Pickling Test (Bucket: {bucket}) ---")
+        print(
+            f"\n--- Starting ObjectStoreRegistry Pickling Test (Bucket: {bucket}) ---"
+        )
         try:
             registry = _build_registry(test_kp, access_key, secret_key)
 
@@ -217,10 +221,14 @@ class TestGenerateParquet(unittest.TestCase):
         fs = MagicMock()
         fs.open.return_value.__enter__.return_value = MagicMock()
 
-        parser, string_vars = select_parser(fs, "weather", "ecmwf_op_clean/2024/02/06.nc")
+        parser, string_vars = select_parser(
+            fs, "weather", "ecmwf_op_clean/2024/02/06.nc"
+        )
 
         self.assertEqual(string_vars, ["station_name", "notes"])
-        mock_hdf_parser.assert_called_once_with(drop_variables=["station_name", "notes"])
+        mock_hdf_parser.assert_called_once_with(
+            drop_variables=["station_name", "notes"]
+        )
         self.assertIs(parser, mock_hdf_parser.return_value)
 
     def test_commit_reference_replaces_existing_file(self):
@@ -240,15 +248,21 @@ class TestGenerateParquet(unittest.TestCase):
             self.assertFalse(tmp_ref_path.exists())
             self.assertTrue(final_ref_path.exists())
             self.assertEqual(final_ref_path.read_text(encoding="utf-8"), "new-bytes")
-    
+
     @patch("pipeline.generate_parquet.time.sleep")
     @patch("pipeline.generate_parquet.os.replace")
-    def test_commit_reference_permission_error_retries_then_succeeds(self, mock_replace, mock_sleep):
+    def test_commit_reference_permission_error_retries_then_succeeds(
+        self, mock_replace, mock_sleep
+    ):
         tmp_ref_path = Path("/tmp/a.tmp.parq")
         final_ref_path = Path("/tmp/a.parq")
 
         # Fail first 2 attempts, then succeed
-        mock_replace.side_effect = [PermissionError("locked"), PermissionError("locked"), None]
+        mock_replace.side_effect = [
+            PermissionError("locked"),
+            PermissionError("locked"),
+            None,
+        ]
 
         commit_reference(tmp_ref_path, final_ref_path)
 
@@ -259,7 +273,9 @@ class TestGenerateParquet(unittest.TestCase):
 
     @patch("pipeline.generate_parquet.time.sleep")
     @patch("pipeline.generate_parquet.os.replace")
-    def test_commit_reference_permission_error_raises_last_attempt(self, mock_replace, mock_sleep):
+    def test_commit_reference_permission_error_raises_last_attempt(
+        self, mock_replace, mock_sleep
+    ):
         tmp_ref_path = Path("/tmp/a.tmp.parq")
         final_ref_path = Path("/tmp/a.parq")
 
@@ -286,7 +302,7 @@ class TestGenerateParquet(unittest.TestCase):
             # temp file should have been created/written before replace
             self.assertTrue(tmp.exists())
             mock_replace.assert_called_once_with(tmp, target)
-    
+
     def test_save_ledger_after_success_raises_on_failures(self):
         with self.assertRaises(RuntimeError):
             save_ledger_after_success(
@@ -303,7 +319,7 @@ class TestGenerateParquet(unittest.TestCase):
             generation_summary={"failed": 0},
         )
         mock_write.assert_called_once_with("ledger.json", {"schema_version": 1})
-             
+
     def test_replace_existing_ref_directory_atomically(self):
         """Existing final directory is removed and replaced by tmp file."""
         with tempfile.TemporaryDirectory() as td:
@@ -411,7 +427,9 @@ class TestGenerateParquet(unittest.TestCase):
         parser = MagicMock()
         mock_select_parser.return_value = (parser, ["station_name"])
 
-        registry = MagicMock(spec=ObjectStoreRegistry) if ObjectStoreRegistry else MagicMock()
+        registry = (
+            MagicMock(spec=ObjectStoreRegistry) if ObjectStoreRegistry else MagicMock()
+        )
 
         record_size = self.kp["execution"]["parquet_record_size"]
         cat_thresh = self.kp["execution"]["categorical_threshold"]
@@ -476,7 +494,9 @@ class TestGenerateParquet(unittest.TestCase):
     @patch("pipeline.generate_parquet.os.replace")
     @patch("pipeline.generate_parquet.Path.mkdir")
     @patch("pipeline.generate_parquet.s3fs.S3FileSystem")
-    def test_generate_reference_success(self, mock_s3fs, mock_mkdir, mock_replace, mock_open_vz, mock_xr_open):
+    def test_generate_reference_success(
+        self, mock_s3fs, mock_mkdir, mock_replace, mock_open_vz, mock_xr_open
+    ):
         """Test successful generation of a reference with mocks."""
         # Setup mock Virtual Dataset context manager
         mock_vds = MagicMock()
@@ -486,7 +506,9 @@ class TestGenerateParquet(unittest.TestCase):
         mock_dataset.variables = {}
         mock_xr_open.return_value = mock_dataset
 
-        registry = MagicMock(spec=ObjectStoreRegistry) if ObjectStoreRegistry else MagicMock()
+        registry = (
+            MagicMock(spec=ObjectStoreRegistry) if ObjectStoreRegistry else MagicMock()
+        )
 
         record_size = self.kp["execution"]["parquet_record_size"]
         cat_thresh = self.kp["execution"]["categorical_threshold"]
@@ -518,7 +540,9 @@ class TestGenerateParquet(unittest.TestCase):
 
     @patch("pipeline.generate_parquet.select_parser")
     @patch("pipeline.generate_parquet.s3fs.S3FileSystem")
-    def test_generate_reference_for_object_returns_failed_on_exception(self, mock_s3fs, mock_select):
+    def test_generate_reference_for_object_returns_failed_on_exception(
+        self, mock_s3fs, mock_select
+    ):
         mock_select.side_effect = RuntimeError("boom")
 
         registry = MagicMock()
@@ -558,6 +582,7 @@ class TestGenerateParquet(unittest.TestCase):
             self.assertEqual(summary["removed"], 1)
             self.assertEqual(summary["missing"], 1)
             self.assertFalse(ref_path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

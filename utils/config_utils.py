@@ -52,7 +52,11 @@ def check_runtime_readiness() -> dict[str, str]:
         except Exception as exc:
             errors.append(f"import {mod} failed: {type(exc).__name__}: {exc}")
 
-    if report.get("fsspec") and report.get("s3fs") and report["fsspec"] != report["s3fs"]:
+    if (
+        report.get("fsspec")
+        and report.get("s3fs")
+        and report["fsspec"] != report["s3fs"]
+    ):
         errors.append(f"fsspec/s3fs mismatch: {report['fsspec']} vs {report['s3fs']}")
 
     if errors:
@@ -97,22 +101,32 @@ def validate_pipeline_schema(kp: dict[str, Any]) -> None:
 
         if mode == "prefix_regex":
             if not flow.get("prefix"):
-                raise ValueError(f"source_flows[{idx}].prefix is required for prefix_regex")
+                raise ValueError(
+                    f"source_flows[{idx}].prefix is required for prefix_regex"
+                )
             key_regex = flow.get("key_regex")
             if not key_regex:
-                raise ValueError(f"source_flows[{idx}].key_regex is required for prefix_regex")
+                raise ValueError(
+                    f"source_flows[{idx}].key_regex is required for prefix_regex"
+                )
             re.compile(key_regex)
 
         if mode == "prefix_glob":
             if not flow.get("prefix"):
-                raise ValueError(f"source_flows[{idx}].prefix is required for prefix_glob")
+                raise ValueError(
+                    f"source_flows[{idx}].prefix is required for prefix_glob"
+                )
             key_glob = flow.get("key_glob")
             if not key_glob:
-                raise ValueError(f"source_flows[{idx}].key_glob is required for prefix_glob")
+                raise ValueError(
+                    f"source_flows[{idx}].key_glob is required for prefix_glob"
+                )
 
         if mode == "exact_key":
             if not flow.get("exact_key"):
-                raise ValueError(f"source_flows[{idx}].exact_key is required for exact_key")
+                raise ValueError(
+                    f"source_flows[{idx}].exact_key is required for exact_key"
+                )
 
     out = kp["output"]
     for k in ["staging_volume_path", "ledger_path", "temp_path"]:
@@ -138,9 +152,10 @@ def load_pipeline_config(config_path: str | Path) -> dict[str, Any]:
     validate_pipeline_schema(kp)
     return kp
 
-def find_env_file(filename= "s3_connect.txt",env_dir=".env"):
+
+def find_env_file(filename="s3_connect.txt", env_dir=".env"):
     """Search upwards from current file to find the .env/filename"""
-    curr_path= Path(__file__).resolve().parent
+    curr_path = Path(__file__).resolve().parent
 
     for parent in [curr_path, *curr_path.parents]:
         env_path = parent / env_dir / filename
@@ -148,33 +163,35 @@ def find_env_file(filename= "s3_connect.txt",env_dir=".env"):
             return env_path
     raise FileNotFoundError(f"Could not find {env_dir}/{filename} in any parent folder")
 
-def resolve_secrets(kp:dict[str, Any]) -> tuple[str, str]:
+
+def resolve_secrets(kp: dict[str, Any]) -> tuple[str, str]:
     # Check for GitHub environment variables
-    access_key= os.environ.get("ACACIA_ACCESS_KEY")
-    secret_key= os.environ.get("ACACIA_SECRET_KEY")
+    access_key = os.environ.get("ACACIA_ACCESS_KEY")
+    secret_key = os.environ.get("ACACIA_SECRET_KEY")
 
     if access_key and secret_key:
         return access_key, secret_key
     try:
-        # .env locating function
-        secret_path= find_env_file()
-    
-        secrets={}
-        with open(secret_path,"r") as f:
+        secret_path = find_env_file()
+
+        secrets = {}
+        with open(secret_path, "r") as f:
             for line in f:
                 if "=" in line:
-                    key, value= line.strip().split("=",1)
+                    key, value = line.strip().split("=", 1)
                     key.strip()
                     value.strip()
-                    secrets[key]= value
-        
-        access_key= secrets.get("ACCESS_KEY")
-        secret_key= secrets.get("SECRET_KEY")
+                    secrets[key] = value
+
+        access_key = secrets.get("ACCESS_KEY")
+        secret_key = secrets.get("SECRET_KEY")
 
     except FileNotFoundError:
-        raise ValueError("Secrets not found. Please provide Acacia access and secret keys in repo settings.")
-        
+        raise ValueError(
+            "Secrets not found. Please provide Acacia access and secret keys in repo settings."
+        )
+
     if not access_key or not secret_key:
         raise ValueError(f"Secrets file at {secret_path} is missing required keys.")
-        
+
     return access_key, secret_key
