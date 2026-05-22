@@ -15,11 +15,11 @@ This pipeline enables efficient, cloud-optimized access to large historical weat
 
 ## Project Structure
 
+- Depedencies are managed via `uv` and pinned in `pyproject.toml` / `uv.lock`
 - `configs/config.yaml`: Central configuration for S3 endpoints, source flow selectors (ECMWF, DPIRD), and output paths.
 - `pipeline/inventory.py`: Logic for scanning S3, building inventory snapshots, and performing incremental diffing.
 - `pipeline/generate_parquet.py`: Parallel generation of Kerchunk Parquet references using `VirtualiZarr` and `Dask`.
 - `utils/config_utils.py`: Runtime readiness checks, configuration loading, and local secret resolution.
-- `requirements.txt`: Python dependencies including `kerchunk`, `virtualizarr`, `obstore`, `xarray`, and `dask`.
 
 ## Getting Started
 
@@ -30,7 +30,7 @@ This pipeline enables efficient, cloud-optimized access to large historical weat
 ### Setup
 1. **Install Dependencies**:
    ```bash
-   pip install -r requirements.txt
+   uv sync
    ```
 
 2. **Configure Secrets**:
@@ -52,6 +52,18 @@ The pipeline follows a **Research -> Strategy -> Execution** flow:
 2. **Diff**: Compare against the local `inventory_ledger.json` to identify new or changed objects.
 3. **Generate**: Parallel produce one Parquet reference file per changed object.
 4. **Commit**: Update the ledger only after successful generation.
+
+## Testing
+
+`.github/workflows/` contains automated Github action jobs. 
+
+```bash
+uv run pytest -m "not e2e" # Runs unit + integration tests
+uv run pytest -m "e2e" # Runs only e2e test
+uv run pytest # Run all
+```
+
+> Note: e2e tests require valid Acacia S3 credentials.
 
 ## Downstream Usage
 
