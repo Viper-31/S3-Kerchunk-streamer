@@ -14,7 +14,7 @@ from pipeline.inventory import (
     diff_inventory,
     load_ledger,
     compute_snapshot_artifacts,
-    build_inventory_snapshot_and_diff
+    build_inventory_snapshot_and_diff,
 )
 from utils.config_utils import load_pipeline_config
 
@@ -40,10 +40,12 @@ class TestInventory(unittest.TestCase):
                 "source_flows": [],
                 "execution": {"max_workers": "auto"},
             }
-    
+
     @patch("pipeline.inventory.boto3.client")
     @patch("pipeline.inventory.s3fs.S3FileSystem")
-    def test_build_storage_clients_wires_credentials_and_config(self, mock_s3fs, mock_boto_client):
+    def test_build_storage_clients_wires_credentials_and_config(
+        self, mock_s3fs, mock_boto_client
+    ):
         kp = {
             "s3": {
                 "endpoint_url": "https://example.endpoint",
@@ -64,7 +66,9 @@ class TestInventory(unittest.TestCase):
         s3fs_kwargs = mock_s3fs.call_args.kwargs
         self.assertEqual(s3fs_kwargs["key"], "ak")
         self.assertEqual(s3fs_kwargs["secret"], "sk")
-        self.assertEqual(s3fs_kwargs["client_kwargs"]["endpoint_url"], "https://example.endpoint")
+        self.assertEqual(
+            s3fs_kwargs["client_kwargs"]["endpoint_url"], "https://example.endpoint"
+        )
         self.assertEqual(s3fs_kwargs["client_kwargs"]["region_name"], "us-west-2")
         self.assertEqual(s3fs_kwargs["config_kwargs"]["signature_version"], "s3v4")
         self.assertEqual(s3fs_kwargs["config_kwargs"]["s3"]["addressing_style"], "path")
@@ -114,11 +118,28 @@ class TestInventory(unittest.TestCase):
 
     def test_iter_prefix_glob_objects_filters_by_glob_and_nc(self):
         pages = [
-            {"Contents": [
-                {"Key": "p/keep1.nc", "ETag": '"e1"', "LastModified": datetime(2024, 1, 1, tzinfo=UTC), "Size": 10},
-                {"Key": "p/skip.txt", "ETag": '"e2"', "LastModified": datetime(2024, 1, 1, tzinfo=UTC), "Size": 10},
-                {"Key": "p/keep2.nc", "ETag": '"e3"', "LastModified": datetime(2024, 1, 1, tzinfo=UTC), "Size": 20},
-            ]}
+            {
+                "Contents": [
+                    {
+                        "Key": "p/keep1.nc",
+                        "ETag": '"e1"',
+                        "LastModified": datetime(2024, 1, 1, tzinfo=UTC),
+                        "Size": 10,
+                    },
+                    {
+                        "Key": "p/skip.txt",
+                        "ETag": '"e2"',
+                        "LastModified": datetime(2024, 1, 1, tzinfo=UTC),
+                        "Size": 10,
+                    },
+                    {
+                        "Key": "p/keep2.nc",
+                        "ETag": '"e3"',
+                        "LastModified": datetime(2024, 1, 1, tzinfo=UTC),
+                        "Size": 20,
+                    },
+                ]
+            }
         ]
         s3 = self._mock_paginator(pages)
         flow = {"id": "f1", "prefix": "p/", "key_glob": "p/keep*.nc"}
@@ -128,12 +149,28 @@ class TestInventory(unittest.TestCase):
 
     def test_iter_prefix_regex_objects_filters_by_regex_and_nc(self):
         pages = [
-            {"Contents": [
-                {"Key": "p/a.nc", "ETag": '"e1"', "LastModified": datetime(2024, 1, 1, tzinfo=UTC), "Size": 10}
-,
-                {"Key": "p/b.txt", "ETag": '"e2"', "LastModified": datetime(2024, 1, 1, tzinfo=UTC), "Size": 10},
-                {"Key": "p/aa.nc", "ETag": '"e3"', "LastModified": datetime(2024, 1, 1, tzinfo=UTC), "Size": 20},
-            ]}
+            {
+                "Contents": [
+                    {
+                        "Key": "p/a.nc",
+                        "ETag": '"e1"',
+                        "LastModified": datetime(2024, 1, 1, tzinfo=UTC),
+                        "Size": 10,
+                    },
+                    {
+                        "Key": "p/b.txt",
+                        "ETag": '"e2"',
+                        "LastModified": datetime(2024, 1, 1, tzinfo=UTC),
+                        "Size": 10,
+                    },
+                    {
+                        "Key": "p/aa.nc",
+                        "ETag": '"e3"',
+                        "LastModified": datetime(2024, 1, 1, tzinfo=UTC),
+                        "Size": 20,
+                    },
+                ]
+            }
         ]
         s3 = self._mock_paginator(pages)
         flow = {"id": "f2", "prefix": "p/", "key_regex": r"^p/a\.nc$"}
@@ -171,7 +208,9 @@ class TestInventory(unittest.TestCase):
     @patch("pipeline.inventory._iter_prefix_regex_objects")
     @patch("pipeline.inventory._iter_prefix_glob_objects")
     @patch("pipeline.inventory._iter_exact_key_object")
-    def test_scan_inventory_supported_modes_and_disabled(self, mock_exact, mock_glob, mock_regex):
+    def test_scan_inventory_supported_modes_and_disabled(
+        self, mock_exact, mock_glob, mock_regex
+    ):
         mock_glob.return_value = []
         mock_regex.return_value = []
         mock_exact.return_value = []
@@ -196,9 +235,14 @@ class TestInventory(unittest.TestCase):
     def test_scan_inventory_rejects_duplicate_keys(self, mock_glob):
         # simulate duplicate keys across flow iterators
         from pipeline.contracts import ObjectRecord
+
         mock_glob.return_value = [
-            ObjectRecord(key="dup.nc", etag="e1", last_modified="t", size=1, flow_id="f1"),
-            ObjectRecord(key="dup.nc", etag="e2", last_modified="t", size=2, flow_id="f1"),
+            ObjectRecord(
+                key="dup.nc", etag="e1", last_modified="t", size=1, flow_id="f1"
+            ),
+            ObjectRecord(
+                key="dup.nc", etag="e2", last_modified="t", size=2, flow_id="f1"
+            ),
         ]
         kp = {
             "s3": {"bucket": "b"},
@@ -214,7 +258,7 @@ class TestInventory(unittest.TestCase):
         }
         with self.assertRaises(ValueError):
             scan_inventory(kp, MagicMock())
-                 
+
     def test_diff_inventory(self):
         """Test the inventory diffing logic."""
         previous = {
@@ -236,14 +280,44 @@ class TestInventory(unittest.TestCase):
     def test_compute_snapshot_artifacts_builds_expected_diff_and_counts(self):
         """Pure transform: verify inventory diff and summary counts are correct."""
         previous_objects = {
-            "stable.nc": {"etag": "e1", "last_modified": "t1", "size": 100, "flow_id": "f1"},
-            "changed.nc": {"etag": "e2", "last_modified": "t2", "size": 200, "flow_id": "f1"},
-            "deleted.nc": {"etag": "e3", "last_modified": "t3", "size": 300, "flow_id": "f2"},
+            "stable.nc": {
+                "etag": "e1",
+                "last_modified": "t1",
+                "size": 100,
+                "flow_id": "f1",
+            },
+            "changed.nc": {
+                "etag": "e2",
+                "last_modified": "t2",
+                "size": 200,
+                "flow_id": "f1",
+            },
+            "deleted.nc": {
+                "etag": "e3",
+                "last_modified": "t3",
+                "size": 300,
+                "flow_id": "f2",
+            },
         }
         current_objects = {
-            "stable.nc": {"etag": "e1", "last_modified": "t1", "size": 100, "flow_id": "f1"},
-            "changed.nc": {"etag": "e2-new", "last_modified": "t2", "size": 200, "flow_id": "f1"},
-            "new.nc": {"etag": "e4", "last_modified": "t4", "size": 400, "flow_id": "f2"},
+            "stable.nc": {
+                "etag": "e1",
+                "last_modified": "t1",
+                "size": 100,
+                "flow_id": "f1",
+            },
+            "changed.nc": {
+                "etag": "e2-new",
+                "last_modified": "t2",
+                "size": 200,
+                "flow_id": "f1",
+            },
+            "new.nc": {
+                "etag": "e4",
+                "last_modified": "t4",
+                "size": 400,
+                "flow_id": "f2",
+            },
         }
 
         artifacts = compute_snapshot_artifacts(
@@ -266,7 +340,12 @@ class TestInventory(unittest.TestCase):
         """Pure transform: next_ledger keeps expected schema/bucket/objects contract."""
         previous_objects = {}
         current_objects = {
-            "only.nc": {"etag": "e1", "last_modified": "t1", "size": 10, "flow_id": "f1"},
+            "only.nc": {
+                "etag": "e1",
+                "last_modified": "t1",
+                "size": 10,
+                "flow_id": "f1",
+            },
         }
 
         artifacts = compute_snapshot_artifacts(
@@ -304,9 +383,19 @@ class TestInventory(unittest.TestCase):
         mock_load_ledger.return_value = {"objects": {"old.nc": {"etag": "e"}}}
         mock_scan.return_value = {"new.nc": {"etag": "e2"}}
         mock_compute.return_value = {
-            "summary": {"scanned": 1, "new": 1, "changed": 0, "deleted": 0, "unchanged": 0},
+            "summary": {
+                "scanned": 1,
+                "new": 1,
+                "changed": 0,
+                "deleted": 0,
+                "unchanged": 0,
+            },
             "diff": {"new": ["new.nc"], "changed": [], "deleted": [], "unchanged": []},
-            "next_ledger": {"schema_version": 1, "bucket": "b", "objects": {"new.nc": {"etag": "e2"}}},
+            "next_ledger": {
+                "schema_version": 1,
+                "bucket": "b",
+                "objects": {"new.nc": {"etag": "e2"}},
+            },
         }
 
         kp = {"s3": {"bucket": "b"}, "output": {"ledger_path": "path.json"}}
@@ -318,6 +407,7 @@ class TestInventory(unittest.TestCase):
         self.assertEqual(out["previous_ledger"]["objects"], {"old.nc": {"etag": "e"}})
         self.assertEqual(out["current_objects"], {"new.nc": {"etag": "e2"}})
         self.assertEqual(out["next_ledger"]["bucket"], "b")
+
 
 if __name__ == "__main__":
     unittest.main()
