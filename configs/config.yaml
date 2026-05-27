@@ -1,21 +1,21 @@
 kerchunk_pipeline:
   s3:
     endpoint_url: "https://projects.pawsey.org.au"
-    bucket: "weather"
+    bucket: "webviz"
     region_name: "us-east-1"
-    secret_scope: "pawsey0411"
+    secret_scope: "jchew"
     
   source_flows:
     - id: "ecmwf_weekly_nc"
       enabled: true
       mode: "prefix_glob"
-      prefix: "vz_kerchunk/ECMWF/"
-      key_glob: "vz_kerchunk/ECMWF/????/??/??.nc"
+      prefix: "ECMWF/"
+      key_glob: "ECMWF/????/??/??.nc"
 
     - id: "dpird_final_singleton"
       enabled: true
       mode: "exact_key"
-      exact_key: "vz_kerchunk/DPIRD/DPIRD_stations_2022_2025.nc"
+      exact_key: "DPIRD/dpird_wa_stations.nc"
 
   output:
     staging_volume_path: "acacia_refs_staging"
