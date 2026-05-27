@@ -4,6 +4,7 @@ from packaging.version import parse as parse_version
 import re
 import os
 import sys
+import tomllib
 from pathlib import Path
 from importlib import import_module
 from importlib.metadata import version, PackageNotFoundError
@@ -80,7 +81,7 @@ def validate_pipeline_schema(kp: dict[str, Any]) -> None:
         raise ValueError(f"Missing kerchunk_pipeline sections: {missing_top}")
 
     s3 = kp["s3"]
-    for k in ["endpoint_url", "bucket", "secret_scope"]:
+    for k in ["endpoint_url", "bucket", "project_scope"]:
         if not s3.get(k):
             raise ValueError(f"Missing s3.{k}")
 
@@ -153,7 +154,7 @@ def load_pipeline_config(config_path: str | Path) -> dict[str, Any]:
     return kp
 
 
-def find_env_file(filename="s3_connect.txt", env_dir=".env"):
+def find_env_file(filename="s3_connect.toml", env_dir=".env"):
     """Search upwards from current file to find the .env/filename"""
     curr_path = Path(__file__).resolve().parent
 
@@ -173,23 +174,18 @@ def resolve_secrets(kp: dict[str, Any]) -> tuple[str, str]:
         return access_key, secret_key
     try:
         secret_path = find_env_file()
+        project_scope = kp["s3"]["project_scope"]
 
-        secrets = {}
-        with open(secret_path, "r") as f:
-            for line in f:
-                if "=" in line:
-                    key, value = line.strip().split("=", 1)
-                    key.strip()
-                    value.strip()
-                    secrets[key] = value
+        with open(secret_path, "rb") as f:
+            secret_data = tomllib.load(f)
+            access_key = str(secret_data[project_scope]["aws_access_key_id"]).strip()
+            secret_key = str(secret_data[project_scope]["aws_secret_access_key"]).strip()
 
-        access_key = secrets.get("ACCESS_KEY")
-        secret_key = secrets.get("SECRET_KEY")
-
-    except FileNotFoundError:
-        raise ValueError(
-            "Secrets not found. Please provide Acacia access and secret keys in repo settings."
-        )
+    except FileNotFoundError as exc:
+        print(exc)
+    
+    except KeyError as exc:
+        raise KeyError("See README.md to provide Acacia access and secret keys in repo env file")
 
     if not access_key or not secret_key:
         raise ValueError(f"Secrets file at {secret_path} is missing required keys.")

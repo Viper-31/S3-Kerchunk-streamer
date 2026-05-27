@@ -3,7 +3,7 @@ kerchunk_pipeline:
     endpoint_url: "https://projects.pawsey.org.au"
     bucket: "webviz"
     region_name: "us-east-1"
-    secret_scope: "jchew"
+    project_scope: "jchew"
     
   source_flows:
     - id: "ecmwf_weekly_nc"
