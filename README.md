@@ -34,10 +34,11 @@ This pipeline enables efficient, cloud-optimized access to large historical weat
    ```
 
 2. **Configure Secrets**:
-   Create a file at `.env/s3_connect.txt` with Acacia credentials:
-   ```text
-   ACCESS_KEY=your_access_key
-   SECRET_KEY=your_secret_key
+   Create a file at `.env/s3_connect.toml` with Acacia credentials:
+   ```toml
+   [project]
+   aws_access_key_id = "your_access_key"
+   aws_secret_access_key = "your_secret_key"
    ```
 
 3. **Verify Runtime**:
