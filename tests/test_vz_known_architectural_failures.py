@@ -34,7 +34,7 @@ def test_vlen_string_export_limitation():
     kp = load_pipeline_config("configs/config.yaml")
     access, secret = resolve_secrets(kp)
     registry = gp._build_registry(kp, access, secret)
-    url = "s3://weather/vz_kerchunk/DPIRD/DPIRD_stations_2022_2025.nc"
+    url = "s3://webviz/DPIRD/dpird_wa_stations.nc"
     parser = HDFParser()
 
     # Stage 1: Check AttributeError or corrupt buffer crash occurs on opening virtual dataset
