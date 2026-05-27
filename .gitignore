@@ -15,6 +15,7 @@ venv.bak/
 temp*
 .tmp
 *.nc
+*.bkp
 
 # VSCode
 *.vscode

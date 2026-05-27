@@ -129,8 +129,8 @@ def record_github_summary(source_key, duration, timings, range_stats):
 @pytest.mark.parametrize(
     "source_key, dataset_type",
     [
-        ("vz_kerchunk/DPIRD/DPIRD_stations_2022_2025.nc", "DPIRD"),
-        ("vz_kerchunk/ECMWF/2024/02/06.nc", "ECMWF"),
+        ("DPIRD/dpird_wa_stations.nc", "DPIRD"),
+        ("ECMWF/2024/02/06.nc", "ECMWF"),
     ],
 )
 def test_dry_run_performance(source_key, dataset_type, setup_tmp_env, perf_tracker):
