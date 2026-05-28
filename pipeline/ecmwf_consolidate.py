@@ -227,6 +227,7 @@ def consolidate_ecmwf_references(
             parser=KerchunkParquetParser(),
             combine="nested",
             concat_dim="time",
+            parallel="dask",
             loadable_variables=[],
         )
 
