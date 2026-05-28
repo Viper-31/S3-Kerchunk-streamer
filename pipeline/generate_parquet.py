@@ -339,11 +339,10 @@ def regenerate_missing_flow_references(
     flow_id: str,
 ) -> dict[str, Any]: 
     """
-    Regnerate missing staged parquet refs for one flow
+    Regnerate missing staged parquet refs for one flow.
 
-    Intended for local self-healing step prior to virtual_mfdataset().
-    It only checks for missing staged ref paths. Corrupt/unopenable ref stores
-    are treated as missing and regenerated once.
+    Intended for local self-healing step prior to virtual_mfdataset() consolidation.
+    It only checks for missing staged ref paths with final_ref_path.exists()
     """
     bucket = kp["s3"]["bucket"]
     out_cfg = kp["output"]
@@ -493,7 +492,7 @@ def parallel_dask_ref_generation(
     summary = {
         "scanned": len(current_objects),
         "changed_or_new": len(source_keys),
-        "generated": len(results) - len(failures),
+        "generated": len(results),
         "skipped": 0,
         "failed": len(failures),
         "deleted_refs_removed": delete_summary["removed"],
