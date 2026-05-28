@@ -2,6 +2,7 @@
 import os
 import time
 import pytest
+import numpy as np
 import xarray as xr
 import warnings
 import s3fs
@@ -180,3 +181,29 @@ def test_dry_run_performance(source_key, dataset_type, setup_tmp_env, perf_track
             f"Unexpected shape for t2m: {ds.t2m.shape}"
         )
         assert "valid_time" in ds.coords, "ECMWF missing 'valid_time' coordinate"
+
+    # Assert consolidated ECMWF
+    consolidated_path= (Path(setup_tmp_env["kp"]["output"]["staging_volume_path"]) / "refs" / "ECMWF_consolidated" / "ecmwf_combined.nc.parq")
+
+    if consolidated_path.exists():
+        consolidated_ds= xr.open_dataset(
+            str(consolidated_path),
+            engine= "kerchunk",
+            storage_options=setup_tmp_env["kerchunk_opts"]
+        )
+    
+    expected_vars = {"u10", "v10", "tcc", "msl"}
+    assert expected_vars.issubset(consolidated_ds.data_vars)
+
+    assert "time" in consolidated_ds.dims
+    assert "step" in consolidated_ds.dims
+    assert consolidated_ds.sizes["time"] > 0
+    assert consolidated_ds.sizes["step"] > 0
+
+    assert consolidated_ds["u10"].ndim == 4
+    assert consolidated_ds["u10"].shape == consolidated_ds["v10"].shape
+    assert consolidated_ds["u10"].shape == consolidated_ds["tcc"].shape
+    assert consolidated_ds["u10"].shape == consolidated_ds["msl"].shape
+    assert consolidated_ds["u10"].shape[-1] == consolidated_ds.sizes["time"]
+
+    assert np.datetime64("2024-02-06T00:00:00") in consolidated_ds["time"].values
