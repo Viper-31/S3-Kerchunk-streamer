@@ -26,8 +26,18 @@ def _reference_path(staging: Path, source_key: str) -> Path:
 
 
 class TestECMWFConsolidate(unittest.TestCase):
+    def _inventory(self, current_objects, previous_objects=None, flow_id=ECMWF_FLOW_ID):
+        return ec.FlowInventory(
+            current_objects=current_objects,
+            previous_objects=previous_objects or {},
+            flow_id=flow_id,
+        )
+
+    def _staging(self, staging: Path) -> ec.StagingConfig:
+        return ec.StagingConfig(staging_volume_path=staging)
+
     def _create_consolidated_output(self, staging: Path) -> Path:
-        output = ec.ecmwf_consolidated_reference_path(staging)
+        output = ec.create_ecmwf_consolidated_ref_path(staging)
         output.mkdir(parents=True, exist_ok=True)
         return output
 
@@ -37,7 +47,7 @@ class TestECMWFConsolidate(unittest.TestCase):
         return ref_path
 
     def test_consolidated_reference_path_contract(self):
-        path = ec.ecmwf_consolidated_reference_path("acacia_refs_staging")
+        path = ec.create_ecmwf_consolidated_ref_path("acacia_refs_staging")
 
         self.assertEqual(
             path,
@@ -59,9 +69,8 @@ class TestECMWFConsolidate(unittest.TestCase):
             self._create_weekly_reference(staging, "ECMWF/1999/01/01.nc")
 
             paths = ec.expected_ecmwf_reference_paths(
-                current_objects=current_objects,
-                staging_volume_path=staging,
-                flow_id=ECMWF_FLOW_ID,
+                inventory=self._inventory(current_objects),
+                staging=self._staging(staging),
             )
 
         self.assertEqual(
@@ -91,9 +100,8 @@ class TestECMWFConsolidate(unittest.TestCase):
                 self.assertEqual(path, good_ref)
 
             unusable = ec.unusable_ecmwf_reference_keys(
-                current_objects=current_objects,
-                staging_volume_path=staging,
-                flow_id=ECMWF_FLOW_ID,
+                inventory=self._inventory(current_objects),
+                staging=self._staging(staging),
                 reference_probe=probe,
             )
 
@@ -102,7 +110,9 @@ class TestECMWFConsolidate(unittest.TestCase):
             ["ECMWF/2024/02/13.nc", "ECMWF/2024/02/20.nc"],
         )
 
-    def test_should_consolidate_when_ecmwf_new_or_changed_key_is_present(self):
+    def test_consolidate_on_inventory_diff_when_ecmwf_new_or_changed_key_is_present(
+        self,
+    ):
         current_objects = {
             "ECMWF/2024/02/06.nc": _object_record(ECMWF_FLOW_ID),
             "DPIRD/dpird_wa_stations.nc": _object_record(DPIRD_FLOW_ID),
@@ -118,17 +128,22 @@ class TestECMWFConsolidate(unittest.TestCase):
             staging = Path(td) / "staging"
             self._create_consolidated_output(staging)
 
-            should_run = ec.should_consolidate_ecmwf(
-                inventory_diff=inventory_diff,
-                current_objects=current_objects,
-                previous_objects=previous_objects,
-                staging_volume_path=staging,
-                flow_id=ECMWF_FLOW_ID,
+            should_run = ec.consolidate_on_inventory_diff(
+                inputs=ec.ConsolidationInputs(
+                    inventory_diff=inventory_diff,
+                    inventory=self._inventory(
+                        current_objects,
+                        previous_objects,
+                    ),
+                    staging=self._staging(staging),
+                )
             )
 
         self.assertTrue(should_run)
 
-    def test_should_consolidate_when_deleted_key_was_ecmwf_in_previous_inventory(self):
+    def test_consolidate_on_inventory_diff_when_deleted_key_was_ecmwf_in_previous_inventory(
+        self,
+    ):
         current_objects = {
             "DPIRD/dpird_wa_stations.nc": _object_record(DPIRD_FLOW_ID),
         }
@@ -146,33 +161,40 @@ class TestECMWFConsolidate(unittest.TestCase):
             staging = Path(td) / "staging"
             self._create_consolidated_output(staging)
 
-            should_run = ec.should_consolidate_ecmwf(
-                inventory_diff=inventory_diff,
-                current_objects=current_objects,
-                previous_objects=previous_objects,
-                staging_volume_path=staging,
-                flow_id=ECMWF_FLOW_ID,
+            should_run = ec.consolidate_on_inventory_diff(
+                inputs=ec.ConsolidationInputs(
+                    inventory_diff=inventory_diff,
+                    inventory=self._inventory(
+                        current_objects,
+                        previous_objects,
+                    ),
+                    staging=self._staging(staging),
+                )
             )
 
         self.assertTrue(should_run)
 
-    def test_should_consolidate_when_consolidated_output_is_missing(self):
+    def test_consolidate_on_inventory_diff_when_consolidated_output_is_missing(
+        self,
+    ):
         current_objects = {
             "ECMWF/2024/02/06.nc": _object_record(ECMWF_FLOW_ID),
         }
 
         with tempfile.TemporaryDirectory() as td:
-            should_run = ec.should_consolidate_ecmwf(
-                inventory_diff={"new": [], "changed": [], "deleted": []},
-                current_objects=current_objects,
-                previous_objects=current_objects,
-                staging_volume_path=Path(td) / "staging",
-                flow_id=ECMWF_FLOW_ID,
+            should_run = ec.consolidate_on_inventory_diff(
+                inputs=ec.ConsolidationInputs(
+                    inventory_diff={"new": [], "changed": [], "deleted": []},
+                    inventory=self._inventory(current_objects),
+                    staging=self._staging(Path(td) / "staging"),
+                )
             )
 
         self.assertTrue(should_run)
 
-    def test_should_not_consolidate_for_non_ecmwf_diff_when_output_exists(self):
+    def test_consolidate_on_inventory_diff_skips_non_ecmwf_changes_with_output(
+        self,
+    ):
         current_objects = {
             "ECMWF/2024/02/06.nc": _object_record(ECMWF_FLOW_ID),
             "DPIRD/dpird_wa_stations.nc": _object_record(DPIRD_FLOW_ID),
@@ -187,12 +209,12 @@ class TestECMWFConsolidate(unittest.TestCase):
             staging = Path(td) / "staging"
             self._create_consolidated_output(staging)
 
-            should_run = ec.should_consolidate_ecmwf(
-                inventory_diff=inventory_diff,
-                current_objects=current_objects,
-                previous_objects=current_objects,
-                staging_volume_path=staging,
-                flow_id=ECMWF_FLOW_ID,
+            should_run = ec.consolidate_on_inventory_diff(
+                inputs=ec.ConsolidationInputs(
+                    inventory_diff=inventory_diff,
+                    inventory=self._inventory(current_objects),
+                    staging=self._staging(staging),
+                )
             )
 
         self.assertFalse(should_run)
@@ -213,11 +235,12 @@ class TestECMWFConsolidate(unittest.TestCase):
             self._create_weekly_reference(staging, "ECMWF/2024/02/06.nc")
 
             result = ec.consolidate_ecmwf_references(
-                current_objects=current_objects,
-                staging_volume_path=staging,
-                flow_id=ECMWF_FLOW_ID,
-                record_size=123,
-                categorical_threshold=7,
+                inventory=self._inventory(current_objects),
+                staging=self._staging(staging),
+                write_config=ec.ParquetWriteConfig(
+                    record_size=123,
+                    categorical_threshold=7,
+                ),
             )
 
         self.assertEqual(result["status"], "failed")
@@ -240,17 +263,18 @@ class TestECMWFConsolidate(unittest.TestCase):
             staging = Path(td) / "staging"
             ref_06 = self._create_weekly_reference(staging, "ECMWF/2024/02/06.nc")
             ref_13 = self._create_weekly_reference(staging, "ECMWF/2024/02/13.nc")
-            expected_output = ec.ecmwf_consolidated_reference_path(staging)
+            expected_output = ec.create_ecmwf_consolidated_ref_path(staging)
 
             vds = MagicMock()
             mock_open_virtual_mfdataset.return_value = vds
 
             result = ec.consolidate_ecmwf_references(
-                current_objects=current_objects,
-                staging_volume_path=staging,
-                flow_id=ECMWF_FLOW_ID,
-                record_size=123,
-                categorical_threshold=7,
+                inventory=self._inventory(current_objects),
+                staging=self._staging(staging),
+                write_config=ec.ParquetWriteConfig(
+                    record_size=123,
+                    categorical_threshold=7,
+                ),
             )
 
             open_args, open_kwargs = mock_open_virtual_mfdataset.call_args
