@@ -329,6 +329,90 @@ def remove_deleted_references(
     return {"removed": removed, "missing": missing}
 
 
+def regenerate_missing_flow_references(
+    *,
+    client: Client,
+    kp: dict[str, Any],
+    access_key: str,
+    secret_key: str,
+    current_objects: dict[str, dict[str, Any]],
+    flow_id: str,
+) -> dict[str, Any]: 
+    """
+    Regnerate missing staged parquet refs for one flow
+
+    Intended for local self-healing step prior to virtual_mfdataset().
+    It only checks for missing staged ref paths. Corrupt/unopenable ref stores
+    are treated as missing and regenerated once.
+    """
+    bucket = kp["s3"]["bucket"]
+    out_cfg = kp["output"]
+    exec_cfg = kp.get("execution", {})
+
+    staging_volume_path = out_cfg["staging_volume_path"]
+    temp_path = out_cfg["temp_path"]
+    record_size = exec_cfg["parquet_record_size"]
+    categorical_threshold = exec_cfg["categorical_threshold"]
+
+    flow_keys = sorted(
+        key
+        for key, row in current_objects.items()
+        if row.get("flow_id") == flow_id
+    )
+
+    missing_keys = [
+        key
+        for key in flow_keys
+        if not build_reference_paths(
+            source_key=key,
+            staging_volume_path=staging_volume_path,
+            temp_path=temp_path,
+        ).final_ref_path.exists()
+    ]
+
+    if not missing_keys:
+        return {"missing_keys": [], "results": [], "failures": []}
+
+    print(f"Regenerating missing refs for flow_id={flow_id}:")
+    for key in missing_keys:
+        print(f" - {key}")
+
+    registry = _build_registry(kp, access_key, secret_key)
+
+    futures = []
+    for source_key in missing_keys:
+        future = client.submit(
+            generate_reference_for_object,
+            source_key=source_key,
+            bucket=bucket,
+            access_key=access_key,
+            secret_key=secret_key,
+            s3_config=kp["s3"],
+            registry=registry,
+            staging_volume_path=staging_volume_path,
+            temp_path=temp_path,
+            current_objects=current_objects,
+            record_size=record_size,
+            categorical_threshold=categorical_threshold,
+        )
+        futures.append(future)
+
+    results: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+
+    for future in as_completed(futures):
+        res = future.result()
+        results.append(res)
+        if res["status"] == "failed":
+            failures.append(res)
+
+    return {
+        "missing_keys": missing_keys,
+        "results": sorted(results, key=lambda x: x["source_key"]),
+        "failures": sorted(failures, key=lambda x: x["source_key"]),
+    }
+
+
 def parallel_dask_ref_generation(
     *,
     client: Client,
