@@ -5,6 +5,7 @@ import tempfile
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+import pipeline.generate_parquet as gp
 
 from pipeline.generate_parquet import (
     _build_registry,
@@ -36,6 +37,14 @@ except ImportError:
     S3Store = None
 
 
+class _CompletedFuture:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def result(self):
+        return self._payload
+
+
 class TestGenerateParquet(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -57,6 +66,14 @@ class TestGenerateParquet(unittest.TestCase):
                 "source_flows": [],
                 "execution": {"max_workers": "auto"},
             }
+
+    def _require_regenerate_missing_flow_references(self):
+        regen_func = getattr(gp, "regenerate_missing_flow_references", None)
+        self.assertIsNotNone(
+            regen_func,
+            "Expected pipeline.generate_parquet.regenerate_missing_flow_references() to be implemented",
+        )
+        return regen_func
 
     @patch("pipeline.generate_parquet.build_vds_to_reference")
     @patch("pipeline.generate_parquet.select_parser")
@@ -582,6 +599,237 @@ class TestGenerateParquet(unittest.TestCase):
             self.assertEqual(summary["removed"], 1)
             self.assertEqual(summary["missing"], 1)
             self.assertFalse(ref_path.exists())
+
+    @patch("pipeline.generate_parquet._build_registry")
+    def test_regenerate_missing_flow_references_returns_empty_when_flow_refs_exist(
+        self, mock_build_registry
+    ):
+        regen_func = self._require_regenerate_missing_flow_references()
+
+        current_objects = {
+            "ECMWF/2024/02/06.nc": {
+                "etag": "e1",
+                "last_modified": "2026-05-28T00:00:00+00:00",
+                "size": 1,
+                "flow_id": "ecmwf_weekly_nc",
+            },
+            "ECMWF/2024/02/13.nc": {
+                "etag": "e2",
+                "last_modified": "2026-05-28T00:00:00+00:00",
+                "size": 1,
+                "flow_id": "ecmwf_weekly_nc",
+            },
+            "DPIRD/dpird_wa_stations.nc": {
+                "etag": "e3",
+                "last_modified": "2026-05-28T00:00:00+00:00",
+                "size": 1,
+                "flow_id": "dpird_final_singleton",
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            staging = Path(td) / "staging"
+            temp = Path(td) / "temp"
+
+            for source_key in [
+                "ECMWF/2024/02/06.nc",
+                "ECMWF/2024/02/13.nc",
+            ]:
+                ref_paths = build_reference_paths(
+                    source_key=source_key,
+                    staging_volume_path=str(staging),
+                    temp_path=str(temp),
+                )
+                ref_paths.final_ref_path.mkdir(parents=True, exist_ok=True)
+
+            kp = {
+                **self.kp,
+                "output": {
+                    **self.kp["output"],
+                    "staging_volume_path": str(staging),
+                    "temp_path": str(temp),
+                },
+            }
+            client = MagicMock()
+
+            result = regen_func(
+                client=client,
+                kp=kp,
+                access_key="ak",
+                secret_key="sk",
+                current_objects=current_objects,
+                flow_id="ecmwf_weekly_nc",
+            )
+
+        self.assertEqual(result, {"missing_keys": [], "results": [], "failures": []})
+        client.submit.assert_not_called()
+        mock_build_registry.assert_not_called()
+
+    @patch("builtins.print")
+    @patch("pipeline.generate_parquet.as_completed")
+    @patch("pipeline.generate_parquet._build_registry")
+    def test_regenerate_missing_flow_references_only_targets_missing_flow_keys(
+        self, mock_build_registry, mock_as_completed, mock_print
+    ):
+        regen_func = self._require_regenerate_missing_flow_references()
+
+        current_objects = {
+            "ECMWF/2024/02/06.nc": {
+                "etag": "e1",
+                "last_modified": "2026-05-28T00:00:00+00:00",
+                "size": 1,
+                "flow_id": "ecmwf_weekly_nc",
+            },
+            "ECMWF/2024/02/13.nc": {
+                "etag": "e2",
+                "last_modified": "2026-05-28T00:00:00+00:00",
+                "size": 1,
+                "flow_id": "ecmwf_weekly_nc",
+            },
+            "DPIRD/dpird_wa_stations.nc": {
+                "etag": "e3",
+                "last_modified": "2026-05-28T00:00:00+00:00",
+                "size": 1,
+                "flow_id": "dpird_final_singleton",
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            staging = Path(td) / "staging"
+            temp = Path(td) / "temp"
+
+            existing_ref = build_reference_paths(
+                source_key="ECMWF/2024/02/06.nc",
+                staging_volume_path=str(staging),
+                temp_path=str(temp),
+            )
+            existing_ref.final_ref_path.mkdir(parents=True, exist_ok=True)
+
+            kp = {
+                **self.kp,
+                "output": {
+                    **self.kp["output"],
+                    "staging_volume_path": str(staging),
+                    "temp_path": str(temp),
+                },
+            }
+            submitted_keys = []
+
+            def fake_submit(func, **kwargs):
+                submitted_keys.append(kwargs["source_key"])
+                return _CompletedFuture(
+                    {
+                        "source_key": kwargs["source_key"],
+                        "flow_id": current_objects[kwargs["source_key"]]["flow_id"],
+                        "status": "generated",
+                        "reference_path": str(
+                            build_reference_paths(
+                                source_key=kwargs["source_key"],
+                                staging_volume_path=str(staging),
+                                temp_path=str(temp),
+                            ).final_ref_path
+                        ),
+                    }
+                )
+
+            client = MagicMock()
+            client.submit.side_effect = fake_submit
+            mock_as_completed.side_effect = lambda futures: futures
+
+            result = regen_func(
+                client=client,
+                kp=kp,
+                access_key="ak",
+                secret_key="sk",
+                current_objects=current_objects,
+                flow_id="ecmwf_weekly_nc",
+            )
+
+        self.assertEqual(submitted_keys, ["ECMWF/2024/02/13.nc"])
+        self.assertEqual(result["missing_keys"], ["ECMWF/2024/02/13.nc"])
+        self.assertEqual(result["failures"], [])
+        self.assertEqual(result["results"][0]["source_key"], "ECMWF/2024/02/13.nc")
+        printed = " ".join(
+            " ".join(str(arg) for arg in call.args) for call in mock_print.call_args_list
+        )
+        self.assertIn("ECMWF/2024/02/13.nc", printed)
+
+    @patch("pipeline.generate_parquet.as_completed")
+    @patch("pipeline.generate_parquet.generate_reference_for_object")
+    @patch("pipeline.generate_parquet._build_registry")
+    @pytest.mark.integration
+    def test_regenerate_missing_flow_references_recreates_missing_flow_store(
+        self, mock_build_registry, mock_generate_reference, mock_as_completed
+    ):
+        regen_func = self._require_regenerate_missing_flow_references()
+
+        current_objects = {
+            "ECMWF/2024/02/20.nc": {
+                "etag": "e1",
+                "last_modified": "2026-05-28T00:00:00+00:00",
+                "size": 1,
+                "flow_id": "ecmwf_weekly_nc",
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            staging = Path(td) / "staging"
+            temp = Path(td) / "temp"
+
+            kp = {
+                **self.kp,
+                "output": {
+                    **self.kp["output"],
+                    "staging_volume_path": str(staging),
+                    "temp_path": str(temp),
+                },
+            }
+
+            def fake_generate_reference_for_object(**kwargs):
+                ref_paths = build_reference_paths(
+                    source_key=kwargs["source_key"],
+                    staging_volume_path=kwargs["staging_volume_path"],
+                    temp_path=kwargs["temp_path"],
+                )
+                ref_paths.final_ref_path.mkdir(parents=True, exist_ok=True)
+                (ref_paths.final_ref_path / ".zmetadata").write_text(
+                    "{}", encoding="utf-8"
+                )
+                return {
+                    "source_key": kwargs["source_key"],
+                    "flow_id": kwargs["current_objects"][kwargs["source_key"]]["flow_id"],
+                    "status": "generated",
+                    "reference_path": str(ref_paths.final_ref_path),
+                }
+
+            def fake_submit(func, **kwargs):
+                return _CompletedFuture(func(**kwargs))
+
+            client = MagicMock()
+            client.submit.side_effect = fake_submit
+            mock_generate_reference.side_effect = fake_generate_reference_for_object
+            mock_as_completed.side_effect = lambda futures: futures
+
+            result = regen_func(
+                client=client,
+                kp=kp,
+                access_key="ak",
+                secret_key="sk",
+                current_objects=current_objects,
+                flow_id="ecmwf_weekly_nc",
+            )
+
+            repaired_ref = build_reference_paths(
+                source_key="ECMWF/2024/02/20.nc",
+                staging_volume_path=str(staging),
+                temp_path=str(temp),
+            ).final_ref_path
+
+            self.assertEqual(result["missing_keys"], ["ECMWF/2024/02/20.nc"])
+            self.assertEqual(result["failures"], [])
+            self.assertTrue(repaired_ref.exists())
+            self.assertTrue(repaired_ref.is_dir())
+            self.assertTrue((repaired_ref / ".zmetadata").exists())
 
 
 if __name__ == "__main__":
