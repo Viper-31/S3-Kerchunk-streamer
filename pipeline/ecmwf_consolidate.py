@@ -34,6 +34,13 @@ class FlowInventory:
 class StagingConfig:
     staging_volume_path: Path
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "staging_volume_path",
+            Path(self.staging_volume_path).expanduser().resolve()
+        )
+
 
 @dataclass(frozen=True)
 class ParquetWriteConfig:
@@ -47,9 +54,13 @@ class ConsolidationInputs:
     inventory: FlowInventory
     staging: StagingConfig
 
-
+#Mark for deletion
 def create_ecmwf_consolidated_ref_path(staging_volume_path: str | Path) -> Path:
     return Path(staging_volume_path) / ECMWF_CONSOLIDATED_RELPATH
+
+
+def _path_to_file_uri(path:Path) -> str:
+    return path.resolve().as_uri()
 
 
 def expected_ecmwf_reference_paths(
@@ -88,12 +99,15 @@ def unusable_ecmwf_reference_keys(
             staging.staging_volume_path / reference_relpath_for_key(source_key)
         )
         if not ref_path.exists():
+            print(f"[ecmwf probe] missing: {source_key} -> {ref_path}")
             unusable_keys.append(source_key)
             continue
 
         try:
             probe(ref_path)
-        except Exception:
+        except Exception as exc:
+            print(f"[ecmwf_probe] unreadable: {source_key}")
+            print(f"{type(exc).__name__}: {exc}")
             unusable_keys.append(source_key)
 
     return unusable_keys
@@ -127,21 +141,19 @@ def consolidate_on_inventory_diff(*, inputs: ConsolidationInputs) -> bool:
     return False
 
 
-def regenerate_unusable_ecmwf_references(
-    *,
-    client: Any,
+def regenerate_unusable_ecmwf_references(                                             
+    *,                                                                                
+    client: Any,                                                                      
     kp: dict[str, Any],
     access_key: str,
     secret_key: str,
     inventory: FlowInventory,
+    staging: StagingConfig,
     reference_probe: Callable[[Path], None] | None = None,
     registry: ObjectStoreRegistry | None = None,
 ) -> dict[str, Any]:
     """Keep weekly refs uncorrupted by regenerating once if unusable by _probe_dataset_using_parquet."""
-    staging_volume_path = kp["output"]["staging_volume_path"]
     registry = registry or _build_registry(kp, access_key, secret_key)
-
-    staging = StagingConfig(staging_volume_path=Path(staging_volume_path))
 
     unusable_keys = unusable_ecmwf_reference_keys(
         inventory=inventory,
@@ -162,7 +174,7 @@ def regenerate_unusable_ecmwf_references(
 
     _remove_reference_paths_for_keys(
         source_keys=unusable_keys,
-        staging_volume_path=staging_volume_path,
+        staging_volume_path=staging.staging_volume_path,
     )
 
     regeneration = regenerate_missing_flow_references(
@@ -212,6 +224,7 @@ def consolidate_ecmwf_references(
         inventory=inventory,
         staging=staging,
     )
+    input_uris = [_path_to_file_uri(path) for path in input_paths]
     output_path = create_ecmwf_consolidated_ref_path(staging.staging_volume_path)
     registry = registry or ObjectStoreRegistry()
 
@@ -222,7 +235,7 @@ def consolidate_ecmwf_references(
             )
 
         vds = vz.open_virtual_mfdataset(
-            [str(path) for path in input_paths],
+            input_uris,
             registry=registry,
             parser=KerchunkParquetParser(),
             combine="nested",
@@ -285,6 +298,7 @@ def run_ecmwf_consolidation(
         access_key=access_key,
         secret_key=secret_key,
         inventory=inputs.inventory,
+        staging=inputs.staging,
         registry=registry,
     )
 
@@ -326,7 +340,7 @@ def _probe_dataset_using_parquet(
     registry: ObjectStoreRegistry | None = None,
 ) -> None:
     vz.open_virtual_dataset(
-        str(ref_path),
+        _path_to_file_uri(ref_path),
         registry=registry or ObjectStoreRegistry(),
         parser=KerchunkParquetParser(),
         loadable_variables=[],
