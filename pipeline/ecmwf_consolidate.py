@@ -54,7 +54,7 @@ class ConsolidationInputs:
     inventory: FlowInventory
     staging: StagingConfig
 
-#Mark for deletion
+
 def create_ecmwf_consolidated_ref_path(staging_volume_path: str | Path) -> Path:
     return Path(staging_volume_path) / ECMWF_CONSOLIDATED_RELPATH
 
@@ -240,6 +240,9 @@ def consolidate_ecmwf_references(
             parser=KerchunkParquetParser(),
             combine="nested",
             concat_dim="time",
+            compat="override",
+            coords="minimal",
+            data_vars="minimal",
             parallel="dask",
             loadable_variables=[],
         )
