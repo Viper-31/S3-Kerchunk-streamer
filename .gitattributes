@@ -3,5 +3,5 @@
 *.zpln filter=nbstripout
 *.ipynb diff=ipynb
 
-main.ipynb -filter -diff
+/main.ipynb -filter -diff
 
