@@ -283,8 +283,8 @@ class TestECMWFConsolidate(unittest.TestCase):
             )
 
         self.assertEqual(
-            [str(path) for path in opened_paths],
-            [str(ref_06), str(ref_13)],
+            opened_paths,
+            [ref_06.resolve().as_uri(), ref_13.resolve().as_uri()]
         )
         self.assertEqual(open_kwargs["combine"], "nested")
         self.assertEqual(open_kwargs["concat_dim"], "time")
@@ -304,6 +304,21 @@ class TestECMWFConsolidate(unittest.TestCase):
                 "input_paths": [str(ref_06), str(ref_13)],
             },
         )
+    
+    @patch("pipeline.ecmwf_consolidate.KerchunkParquetParser")
+    @patch("pipeline.ecmwf_consolidate.vz.open_virtual_dataset")
+    def test_probe_uses_file_uri_for_local_parquet_refs(
+        self, mock_open_virtual_dataset, mock_parser_cls
+    ):
+        with tempfile.TemporaryDirectory() as td:
+            ref_path = Path(td) / "refs" / "ECMWF" / "2024" / "02" / "06.nc.parq"
+            ref_path.mkdir(parents=True, exist_ok=True)
+
+            ec._probe_dataset_using_parquet(ref_path)
+
+        open_args, open_kwargs = mock_open_virtual_dataset.call_args
+        self.assertEqual(open_args[0], ref_path.resolve().as_uri())
+        self.assertIs(open_kwargs["parser"], mock_parser_cls.return_value)
 
 
 if __name__ == "__main__":
