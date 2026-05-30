@@ -1,4 +1,4 @@
-# Generate one Kerchunk parquet reference per source object.
+# Generate one Kerchunk JSON reference per source object.
 
 from __future__ import annotations
 
@@ -40,14 +40,14 @@ def _keys_to_generate(diff: dict[str, list[str]]) -> list[str]:
 
 
 def reference_relpath_for_key(source_key: str) -> str:
-    """Map a source key to a stable parquet reference output path."""
-    return f"refs/{source_key}.parq"
+    """Map a source key to a stable JSON reference output path."""
+    return f"refs/{source_key}.json"
 
 
 @dataclass(frozen=True)
 class ReferencePaths:
     """
-    Tmp and final staging paths to drop Kerchunk Parquet reference files.
+    Tmp and final staging paths to drop Kerchunk JSON reference files.
     Paths configured in config.yaml
     """
 
@@ -61,7 +61,7 @@ def build_reference_paths(
     return ReferencePaths(
         final_ref_path=Path(staging_volume_path)
         / reference_relpath_for_key(source_key),
-        tmp_ref_path=Path(temp_path) / f"{source_key.replace('/', '__')}.tmp.parq",
+        tmp_ref_path=Path(temp_path) / f"{source_key.replace('/', '__')}.tmp.json",
     )
 
 
@@ -101,7 +101,7 @@ def enrich_string_variables(
     source_key: str,
     string_vars: list[str],
 ) -> Any:
-    """Append dropped string dimensions to vds (Will take a while over network)"""
+    """Append dropped string coords to vds (Will take a while over network)"""
     if not string_vars:
         return vds
 
@@ -123,15 +123,14 @@ def build_vds_to_reference(
     source_key: str,
     string_vars: list[str],
     tmp_ref_path: Path,
-    record_size: int,
-    categorical_threshold: int,
 ) -> None:
-    """Build VirtualiZarr virtual dataset.Then, exports to Kerchunk Parquet"""
+    """Build VirtualiZarr virtual dataset.Then, exports to Kerchunk JSON"""
     vds = vz.open_virtual_dataset(
         url=source_url,
         registry=registry,
         parser=parser,
         loadable_variables=[],
+        decode_times=True,
     )
 
     vds = enrich_string_variables(
@@ -144,9 +143,7 @@ def build_vds_to_reference(
 
     vds.vz.to_kerchunk(
         filepath=str(tmp_ref_path),
-        format="parquet",
-        record_size=record_size,
-        categorical_threshold=categorical_threshold,
+        format="json",
     )
 
 
@@ -235,10 +232,8 @@ def generate_reference_for_object(
     staging_volume_path: str,
     temp_path: str,
     current_objects: dict[str, dict[str, Any]],
-    record_size: int,
-    categorical_threshold: int,
 ) -> dict[str, Any]:
-    """Generate a parquet reference for one source object with atomic output replace."""
+    """Generate a JSON reference for one source object with atomic output replace."""
     source_url = f"s3://{bucket}/{source_key}"
     flow_id = current_objects.get(source_key, {}).get("flow_id", "unknown")
 
@@ -275,8 +270,6 @@ def generate_reference_for_object(
             source_key=source_key,
             string_vars=string_vars,
             tmp_ref_path=tmp_ref_path,
-            record_size=record_size,
-            categorical_threshold=categorical_threshold,
         )
 
         parser_used = (
@@ -348,9 +341,6 @@ def parallel_dask_ref_generation(
     staging_volume_path = out_cfg["staging_volume_path"]
     temp_path = out_cfg["temp_path"]
 
-    record_size = exec_cfg["parquet_record_size"]
-    categorical_threshold = exec_cfg["categorical_threshold"]
-
     source_keys = _keys_to_generate(inventory_diff)
     deleted_keys = sorted(inventory_diff.get("deleted", []))
 
@@ -388,8 +378,6 @@ def parallel_dask_ref_generation(
             "staging_volume_path": staging_volume_path,
             "temp_path": temp_path,
             "current_objects": current_objects,
-            "record_size": record_size,
-            "categorical_threshold": categorical_threshold,
         }
         future = client.submit(generate_reference_for_object, **task_kwargs)
         futures.append(future)

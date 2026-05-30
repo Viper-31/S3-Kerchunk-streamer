@@ -22,7 +22,6 @@ REQUIRED_MIN_VERSION = {
 REQUIRED_MODULES = [
     "distributed",
     "fsspec",
-    "fastparquet",
     "obstore",
     "xarray",
     "zarr",
