@@ -27,7 +27,7 @@ def test_vlen_string_export_limitation():
     Architectural canary test:
     Kerchunk cannot currently map HDF5 variable-length string heaps over S3.
     If this test starts FAILING (i.e. it does NOT raise ValueError), it means
-    upstream has fixed the limitation, and pipeline/generate_parquet.py `enrich_string_variables`
+    upstream has fixed the limitation, and the `enrich_string_variables`
     workaround can finally be removed.
     """
 

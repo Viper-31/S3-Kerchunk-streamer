@@ -36,7 +36,7 @@ except ImportError:
     S3Store = None
 
 
-class TestGenerateParquet(unittest.TestCase):
+class TestGenerateJsonReferences(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.config_path = Path("configs/config.yaml")
@@ -61,15 +61,11 @@ class TestGenerateParquet(unittest.TestCase):
     @patch("pipeline.generate_parquet.build_vds_to_reference")
     @patch("pipeline.generate_parquet.select_parser")
     @patch("pipeline.generate_parquet.commit_reference")
-    def test_config_propagation_to_generation(
+    def test_json_generation_omits_format_specific_options(
         self, mock_commit, mock_select_parser, mock_build_vds
     ):
-        """Test that execution configuration parameters map correctly from config.yaml to generation."""
+        """JSON reference generation does not pass format-specific tuning options."""
         mock_select_parser.return_value = (MagicMock(), [])
-
-        # Pull values directly from the loaded config.yaml setup in setUpClass
-        config_record_size = self.kp["execution"]["parquet_record_size"]
-        config_cat_threshold = self.kp["execution"]["categorical_threshold"]
 
         with tempfile.TemporaryDirectory() as td:
             generate_reference_for_object(
@@ -82,15 +78,23 @@ class TestGenerateParquet(unittest.TestCase):
                 staging_volume_path=str(Path(td) / "staging"),
                 temp_path=str(Path(td) / "temp"),
                 current_objects={"test/data.nc": {"flow_id": "flow1"}},
-                record_size=config_record_size,
-                categorical_threshold=config_cat_threshold,
             )
 
-        # Verify that generate_reference_for_object passes config values down
         mock_build_vds.assert_called_once()
         _, kwargs = mock_build_vds.call_args
-        self.assertEqual(kwargs["record_size"], config_record_size)
-        self.assertEqual(kwargs["categorical_threshold"], config_cat_threshold)
+        self.assertEqual(
+            set(kwargs),
+            {
+                "source_url",
+                "registry",
+                "parser",
+                "fs",
+                "bucket",
+                "source_key",
+                "string_vars",
+                "tmp_ref_path",
+            },
+        )
 
     @pytest.mark.integration
     def test_object_store_registry_pickling(self):
@@ -150,13 +154,13 @@ class TestGenerateParquet(unittest.TestCase):
         print("--- ObjectStoreRegistry Pickling Test Passed ---\n")
 
     def test_reference_relpath_for_key(self):
-        """Test mapping of source key to parquet reference path."""
+        """Test mapping of source key to JSON reference path."""
         source_key = "ecmwf_op_clean/2024/02/06.nc"
-        expected = f"refs/{source_key}.parq"
+        expected = f"refs/{source_key}.json"
         self.assertEqual(reference_relpath_for_key(source_key), expected)
 
     def test_build_reference_paths(self):
-        """Path unit test: stable mapping from source key to final/tmp parquet paths."""
+        """Path unit test: stable mapping from source key to final/tmp JSON paths."""
         source_key = "ecmwf_op_clean/2024/02/06.nc"
         paths = build_reference_paths(
             source_key=source_key,
@@ -166,17 +170,17 @@ class TestGenerateParquet(unittest.TestCase):
 
         self.assertEqual(
             paths.final_ref_path,
-            Path("acacia_refs_staging") / "refs/ecmwf_op_clean/2024/02/06.nc.parq",
+            Path("acacia_refs_staging") / "refs/ecmwf_op_clean/2024/02/06.nc.json",
         )
         self.assertEqual(
             paths.tmp_ref_path,
-            Path("acacia_refs_temp") / "ecmwf_op_clean__2024__02__06.nc.tmp.parq",
+            Path("acacia_refs_temp") / "ecmwf_op_clean__2024__02__06.nc.tmp.json",
         )
 
     def test_remove_tmpfile_for_existing_file(self):
-        """Path unit test: pre-existing temp parquet file is removed before generation."""
+        """Path unit test: pre-existing temp JSON file is removed before generation."""
         with tempfile.TemporaryDirectory() as td:
-            tmp_ref_path = Path(td) / "tmp" / "a.tmp.parq"
+            tmp_ref_path = Path(td) / "tmp" / "a.tmp.json"
             tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
             tmp_ref_path.write_text("stale", encoding="utf-8")
 
@@ -187,7 +191,7 @@ class TestGenerateParquet(unittest.TestCase):
     def test_remove_tmpdir_for_existing_dir(self):
         """Path unit test: pre-existing temp directory at target is removed safely."""
         with tempfile.TemporaryDirectory() as td:
-            tmp_ref_path = Path(td) / "tmp" / "a.tmp.parq"
+            tmp_ref_path = Path(td) / "tmp" / "a.tmp.json"
             tmp_ref_path.mkdir(parents=True, exist_ok=True)
             (tmp_ref_path / "nested.txt").write_text("stale-dir", encoding="utf-8")
 
@@ -232,11 +236,11 @@ class TestGenerateParquet(unittest.TestCase):
         self.assertIs(parser, mock_hdf_parser.return_value)
 
     def test_commit_reference_replaces_existing_file(self):
-        """Existing final parquet file is replaced by tmp output."""
+        """Existing final JSON file is replaced by tmp output."""
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
-            tmp_ref_path = td_path / "work" / "obj.tmp.parq"
-            final_ref_path = td_path / "refs" / "obj.parq"
+            tmp_ref_path = td_path / "work" / "obj.tmp.json"
+            final_ref_path = td_path / "refs" / "obj.json"
 
             tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
             final_ref_path.parent.mkdir(parents=True, exist_ok=True)
@@ -254,8 +258,8 @@ class TestGenerateParquet(unittest.TestCase):
     def test_commit_reference_permission_error_retries_then_succeeds(
         self, mock_replace, mock_sleep
     ):
-        tmp_ref_path = Path("/tmp/a.tmp.parq")
-        final_ref_path = Path("/tmp/a.parq")
+        tmp_ref_path = Path("/tmp/a.tmp.json")
+        final_ref_path = Path("/tmp/a.json")
 
         # Fail first 2 attempts, then succeed
         mock_replace.side_effect = [
@@ -276,8 +280,8 @@ class TestGenerateParquet(unittest.TestCase):
     def test_commit_reference_permission_error_raises_last_attempt(
         self, mock_replace, mock_sleep
     ):
-        tmp_ref_path = Path("/tmp/a.tmp.parq")
-        final_ref_path = Path("/tmp/a.parq")
+        tmp_ref_path = Path("/tmp/a.tmp.json")
+        final_ref_path = Path("/tmp/a.json")
 
         # Fail all 5 attempts
         mock_replace.side_effect = PermissionError("locked")
@@ -324,8 +328,8 @@ class TestGenerateParquet(unittest.TestCase):
         """Existing final directory is removed and replaced by tmp file."""
         with tempfile.TemporaryDirectory() as td:
             td_path = Path(td)
-            tmp_ref_path = td_path / "work" / "obj.tmp.parq"
-            final_ref_path = td_path / "refs" / "obj.parq"
+            tmp_ref_path = td_path / "work" / "obj.tmp.json"
+            final_ref_path = td_path / "refs" / "obj.json"
 
             tmp_ref_path.parent.mkdir(parents=True, exist_ok=True)
             final_ref_path.mkdir(parents=True, exist_ok=True)
@@ -360,24 +364,21 @@ class TestGenerateParquet(unittest.TestCase):
     @pytest.mark.integration
     @patch("pipeline.generate_parquet.enrich_string_variables")
     @patch("pipeline.generate_parquet.vz.open_virtual_dataset")
-    def test_build_vds_to_parq_reference(
+    def test_build_vds_to_json_reference(
         self,
         mock_open_vz,
         mock_enrich,
     ):
-        """Integration test: Combine open virtual dataset, enrich, and write parquet reference."""
+        """Integration test: Combine open virtual dataset, enrich, and write JSON reference."""
         raw_vds = MagicMock()
         enriched_vds = MagicMock()
         mock_open_vz.return_value = raw_vds
         mock_enrich.return_value = enriched_vds
 
-        tmp_ref_path = Path("/tmp/ref.tmp.parq")
+        tmp_ref_path = Path("/tmp/ref.tmp.json")
         parser = MagicMock()
         registry = MagicMock()
         fs = MagicMock()
-
-        record_size = self.kp["execution"]["parquet_record_size"]
-        cat_thresh = self.kp["execution"]["categorical_threshold"]
 
         build_vds_to_reference(
             source_url="s3://weather/x.nc",
@@ -388,8 +389,6 @@ class TestGenerateParquet(unittest.TestCase):
             source_key="x.nc",
             string_vars=["station_name"],
             tmp_ref_path=tmp_ref_path,
-            record_size=record_size,
-            categorical_threshold=cat_thresh,
         )
 
         mock_open_vz.assert_called_once_with(
@@ -397,6 +396,7 @@ class TestGenerateParquet(unittest.TestCase):
             registry=registry,
             parser=parser,
             loadable_variables=[],
+            decode_times=True,
         )
         mock_enrich.assert_called_once_with(
             vds=raw_vds,
@@ -407,9 +407,7 @@ class TestGenerateParquet(unittest.TestCase):
         )
         enriched_vds.vz.to_kerchunk.assert_called_once_with(
             filepath=str(tmp_ref_path),
-            format="parquet",
-            record_size=record_size,
-            categorical_threshold=cat_thresh,
+            format="json",
         )
 
     @patch("pipeline.generate_parquet.build_vds_to_reference")
@@ -431,9 +429,6 @@ class TestGenerateParquet(unittest.TestCase):
             MagicMock(spec=ObjectStoreRegistry) if ObjectStoreRegistry else MagicMock()
         )
 
-        record_size = self.kp["execution"]["parquet_record_size"]
-        cat_thresh = self.kp["execution"]["categorical_threshold"]
-
         with tempfile.TemporaryDirectory() as td:
             result = generate_reference_for_object(
                 source_key="test/data.nc",
@@ -445,8 +440,6 @@ class TestGenerateParquet(unittest.TestCase):
                 staging_volume_path=str(Path(td) / "staging"),
                 temp_path=str(Path(td) / "temp"),
                 current_objects={"test/data.nc": {"flow_id": "flow1"}},
-                record_size=record_size,
-                categorical_threshold=cat_thresh,
             )
 
         self.assertEqual(result["status"], "generated")
@@ -510,9 +503,6 @@ class TestGenerateParquet(unittest.TestCase):
             MagicMock(spec=ObjectStoreRegistry) if ObjectStoreRegistry else MagicMock()
         )
 
-        record_size = self.kp["execution"]["parquet_record_size"]
-        cat_thresh = self.kp["execution"]["categorical_threshold"]
-
         with tempfile.TemporaryDirectory() as td:
             result = generate_reference_for_object(
                 source_key="test/data.nc",
@@ -524,8 +514,6 @@ class TestGenerateParquet(unittest.TestCase):
                 staging_volume_path=str(Path(td) / "staging"),
                 temp_path=str(Path(td) / "temp"),
                 current_objects={"test/data.nc": {"flow_id": "flow1"}},
-                record_size=record_size,
-                categorical_threshold=cat_thresh,
             )
 
         self.assertEqual(result["status"], "generated")
@@ -558,8 +546,6 @@ class TestGenerateParquet(unittest.TestCase):
                 staging_volume_path=str(Path(td) / "staging"),
                 temp_path=str(Path(td) / "temp"),
                 current_objects={"test/data.nc": {"flow_id": "flow1"}},
-                record_size=10,
-                categorical_threshold=10,
             )
 
         self.assertEqual(result["status"], "failed")

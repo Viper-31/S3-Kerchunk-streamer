@@ -148,8 +148,6 @@ def test_dry_run_performance(source_key, dataset_type, setup_tmp_env, perf_track
         staging_volume_path=str(setup_tmp_env["tmp_dir"]),
         temp_path=str(setup_tmp_env["work_dir"]),
         current_objects={source_key: {"flow_id": "dry-run-test"}},
-        record_size=100000,
-        categorical_threshold=10,
     )
 
     duration = time.time() - start_time
@@ -160,13 +158,13 @@ def test_dry_run_performance(source_key, dataset_type, setup_tmp_env, perf_track
         f"Failed to generate reference for {source_key}: {result.get('error')}"
     )
 
-    # Assert parquet reference exists
-    ref_parquet_path = setup_tmp_env["tmp_dir"] / "refs" / f"{source_key}.parq"
-    assert ref_parquet_path.exists(), f"Parquet file missing at {ref_parquet_path}"
+    # Assert JSON reference exists
+    ref_json_path = setup_tmp_env["tmp_dir"] / "refs" / f"{source_key}.json"
+    assert ref_json_path.exists(), f"JSON reference missing at {ref_json_path}"
 
-    # Assert xarray reads from .parq
+    # Assert xarray reads from the Kerchunk JSON reference
     ds = xr.open_dataset(
-        str(ref_parquet_path),
+        str(ref_json_path),
         engine="kerchunk",
         storage_options=setup_tmp_env["kerchunk_opts"],
     )
