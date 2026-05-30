@@ -7,7 +7,7 @@ from pathlib import Path
 repo_root = Path(__file__).parent.parent
 sys.path.insert(0, str(repo_root))
 from utils.config_utils import load_pipeline_config, resolve_secrets
-from pipeline import generate_parquet as gp
+from pipeline import generate_json as gjson
 
 pytestmark = pytest.mark.e2e
 
@@ -27,13 +27,13 @@ def test_vlen_string_export_limitation():
     Architectural canary test:
     Kerchunk cannot currently map HDF5 variable-length string heaps over S3.
     If this test starts FAILING (i.e. it does NOT raise ValueError), it means
-    upstream has fixed the limitation, and pipeline/generate_parquet.py `enrich_string_variables`
+    upstream has fixed the limitation, and the `enrich_string_variables`
     workaround can finally be removed.
     """
 
     kp = load_pipeline_config("configs/config.yaml")
     access, secret = resolve_secrets(kp)
-    registry = gp._build_registry(kp, access, secret)
+    registry = gjson._build_registry(kp, access, secret)
     url = "s3://webviz/DPIRD/dpird_wa_stations.nc"
     parser = HDFParser()
 
