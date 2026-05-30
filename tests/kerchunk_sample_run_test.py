@@ -9,7 +9,7 @@ from pathlib import Path
 
 from pipeline.inventory import build_storage_clients
 from utils.config_utils import load_pipeline_config, resolve_secrets
-from pipeline import generate_parquet as gp
+from pipeline import generate_json as gjson
 
 pytestmark = pytest.mark.e2e
 
@@ -32,7 +32,7 @@ def setup_tmp_env():
     s3_opts["asynchronous"] = False
     kerchunk_opts = {"remote_protocol": "s3", "remote_options": s3_opts}
 
-    registry = gp._build_registry(kp, ACCESS_KEY, SECRET_KEY)
+    registry = gjson._build_registry(kp, ACCESS_KEY, SECRET_KEY)
 
     tmp_dir = repo_root / ".tmp"
     work_dir = repo_root / ".tmp" / "work"
@@ -56,7 +56,7 @@ def perf_tracker(monkeypatch):
     timings = {"select_parser": [], "enrich_string_variables": []}
     range_stats = {"get_object": 0, "get_object_with_range": 0}
 
-    orig_parser_func = gp.select_parser
+    orig_parser_func = gjson.select_parser
 
     def timed_parser(*args, **kwargs):
         t0 = time.time()
@@ -65,7 +65,7 @@ def perf_tracker(monkeypatch):
         finally:
             timings["select_parser"].append(time.time() - t0)
 
-    orig_enrich_string_func = gp.enrich_string_variables
+    orig_enrich_string_func = gjson.enrich_string_variables
 
     def timed_enrich(*args, **kwargs):
         t0 = time.time()
@@ -83,8 +83,8 @@ def perf_tracker(monkeypatch):
                 range_stats["get_object_with_range"] += 1
         return orig_call_s3_func(self, method, *args, **kwargs)
 
-    monkeypatch.setattr(gp, "select_parser", timed_parser)
-    monkeypatch.setattr(gp, "enrich_string_variables", timed_enrich)
+    monkeypatch.setattr(gjson, "select_parser", timed_parser)
+    monkeypatch.setattr(gjson, "enrich_string_variables", timed_enrich)
     monkeypatch.setattr(s3fs.S3FileSystem, "_call_s3", wrapped_call_s3)
 
     yield timings, range_stats
@@ -138,7 +138,7 @@ def test_dry_run_performance(source_key, dataset_type, setup_tmp_env, perf_track
     timings, range_stats = perf_tracker
     start_time = time.time()
 
-    result = gp.generate_reference_for_object(
+    result = gjson.generate_reference_for_object(
         source_key=source_key,
         bucket=setup_tmp_env["kp"]["s3"]["bucket"],
         access_key=setup_tmp_env["access"],
