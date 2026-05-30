@@ -1,6 +1,6 @@
 # S3 Kerchunk Streamer
 
-A local Dask-powered batch pipeline that scans NetCDF objects hosted on Pawsey's Acacia (S3-compatible object storage) and generates [Kerchunk](https://fsspec.github.io/kerchunk/) Parquet references. These references allow downstream visualization and web applications to stream exact byte ranges (via [VirtualiZarr](https://virtualizarr.readthedocs.io/)) instead of downloading massive 2-5 GB source files in their entirety.
+A local Dask-powered batch pipeline that scans NetCDF objects hosted on Pawsey's Acacia (S3-compatible object storage) and generates [Kerchunk](https://fsspec.github.io/kerchunk/) JSON references. These references allow downstream visualization and web applications to stream exact byte ranges (via [VirtualiZarr](https://virtualizarr.readthedocs.io/)) instead of downloading massive 2-5 GB source files in their entirety.
 
 ## Overview
 
@@ -10,7 +10,7 @@ This pipeline enables efficient, cloud-optimized access to large historical weat
 - **Cloud-Optimized Access**: Converts traditional NetCDF S3 objects into virtual cloud-optimized datasets using Kerchunk and VirtualiZarr.
 - **Incremental Processing**: Tracks `ETag`, `LastModified`, and `Size` in a local JSON inventory ledger to ensure only new or changed files are reprocessed.
 - **Local Parallelism**: Leverages Dask for parallel reference generation, optimized for local multi-core environments.
-- **Atomic Operations**: Implements atomic writes for both Parquet references and the inventory ledger to prevent state corruption.
+- **Atomic Operations**: Implements atomic writes for both JSON references and the inventory ledger to prevent state corruption.
 - **Visualization Ready**: Consumer applications can open the metadata via `ReferenceFileSystem` and `xarray` to pull precise byte slices for interactive streaming.
 
 ## Project Structure
@@ -18,7 +18,7 @@ This pipeline enables efficient, cloud-optimized access to large historical weat
 - Depedencies are managed via `uv` and pinned in `pyproject.toml` / `uv.lock`
 - `configs/config.yaml`: Central configuration for S3 endpoints, source flow selectors (ECMWF, DPIRD), and output paths.
 - `pipeline/inventory.py`: Logic for scanning S3, building inventory snapshots, and performing incremental diffing.
-- `pipeline/generate_parquet.py`: Parallel generation of Kerchunk Parquet references using `VirtualiZarr` and `Dask`.
+- `pipeline/`: Inventory scanning and parallel Kerchunk JSON reference generation using `VirtualiZarr` and `Dask`.
 - `utils/config_utils.py`: Runtime readiness checks, configuration loading, and local secret resolution.
 
 ## Getting Started
@@ -46,12 +46,12 @@ This pipeline enables efficient, cloud-optimized access to large historical weat
 
 ## Execution
 
-The pipeline can be executed via executing the `main.ipynb` orchestration notebook for the full S3 inventory scan and Parquet reference generation
+The pipeline can be executed via executing the `main.ipynb` orchestration notebook for the full S3 inventory scan and JSON reference generation
 
 The pipeline follows a **Research -> Strategy -> Execution** flow:
 1. **Scan**: Enumerate S3 objects based on the configured `source_flows`.
 2. **Diff**: Compare against the local `inventory_ledger.json` to identify new or changed objects.
-3. **Generate**: Parallel produce one Parquet reference file per changed object.
+3. **Generate**: Parallel produce one JSON reference file per changed object.
 4. **Commit**: Update the ledger only after successful generation.
 
 ## Testing
@@ -68,7 +68,7 @@ uv run pytest # Run all
 
 ## Downstream Usage
 
-Once the pipeline generates the Parquet references, visualization tools or web APIs can consume them:
+Once the pipeline generates the JSON references, visualization tools or web APIs can consume them:
 ```python
 import xarray as xr
 import fsspec
@@ -81,9 +81,9 @@ storage_options = {
     "config_kwargs": {"signature_version": "s3v4", "s3": {"addressing_style": "path"}}
 }
 
-# Open the virtualized dataset using the generated Parquet reference
+# Open the virtualized dataset using the generated JSON reference
 ds = xr.open_dataset(
-    "path/to/reference.parq",
+    "path/to/reference.json",
     engine="kerchunk",
     backend_kwargs={"storage_options": {"remote_options": storage_options}}
 )
