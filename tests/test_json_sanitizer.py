@@ -89,5 +89,5 @@ def test_sanitize_generated_references_uses_reference_relpaths(tmp_path):
     payload = json.loads(ref_path.read_text(encoding="utf-8"))
     attrs = json.loads(payload["refs"]["lat/.zattrs"])
 
-    assert summary == {"checked": 1, "sanitized_zattrs": 1}
+    assert summary == {"checked_refs": 1, "sanitized_zattrs_instances": 1}
     assert attrs["_FillValue"] == json_sanitizer.NAN_base64
