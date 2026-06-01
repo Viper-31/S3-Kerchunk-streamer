@@ -50,7 +50,7 @@ def sanitize_generated_references(
     source_keys: list[str],
 ) -> dict[str, int]:
     staging_root = Path(staging_volume_path)
-    summary = {"checked": 0, "sanitized_zattrs": 0}
+    summary = {"checked_refs": 0, "sanitized_zattrs_instances": 0}
 
     for source_key in sorted(source_keys):
         ref_path = staging_root / reference_relpath_for_key(source_key)
@@ -58,7 +58,7 @@ def sanitize_generated_references(
         if not ref_path.exists():
             continue
 
-        summary["checked"] += 1
-        summary["sanitized_zattrs"] += sanitize_reference_file(ref_path)
+        summary["checked_refs"] += 1
+        summary["sanitized_zattrs_instances"] += sanitize_reference_file(ref_path)
 
     return summary
