@@ -15,7 +15,7 @@ kerchunk_pipeline:
     - id: "dpird_final_singleton"
       enabled: true
       mode: "exact_key"
-      exact_key: "DPIRD/dpird_wa_stations.nc"
+      exact_key: "DPIRD/DPIRD_final_stations.nc"
 
   output:
     staging_volume_path: "acacia_refs_staging"
