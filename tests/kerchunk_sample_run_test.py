@@ -129,7 +129,7 @@ def record_github_summary(source_key, duration, timings, range_stats):
 @pytest.mark.parametrize(
     "source_key, dataset_type",
     [
-        ("DPIRD/dpird_wa_stations.nc", "DPIRD"),
+        ("DPIRD/DPIRD_final_stations.nc", "DPIRD"),
         ("ECMWF/2024/02/06.nc", "ECMWF"),
     ],
 )

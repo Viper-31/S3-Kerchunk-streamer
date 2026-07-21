@@ -34,7 +34,7 @@ def test_vlen_string_export_limitation():
     kp = load_pipeline_config("configs/config.yaml")
     access, secret = resolve_secrets(kp)
     registry = gjson._build_registry(kp, access, secret)
-    url = "s3://webviz/DPIRD/dpird_wa_stations.nc"
+    url = "s3://webviz/DPIRD/DPIRD_final_stations.nc"
     parser = HDFParser()
 
     # Stage 1: Check AttributeError or corrupt buffer crash occurs on opening virtual dataset

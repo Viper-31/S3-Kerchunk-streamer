@@ -9,7 +9,7 @@ def _write_reference(path, refs):
 
 
 def test_sanitize_reference_file_replaces_bare_nan_fill_value(tmp_path):
-    ref_path = tmp_path / "dpird_wa_stations.nc.json"
+    ref_path = tmp_path / "DPIRD_final_stations.nc.json"
     _write_reference(
         ref_path,
         {
@@ -73,7 +73,7 @@ def test_sanitize_reference_file_does_not_rewrite_clean_reference(tmp_path):
 
 def test_sanitize_generated_references_uses_reference_relpaths(tmp_path):
     staging_root = tmp_path / "staging"
-    ref_path = staging_root / "refs" / "DPIRD" / "dpird_wa_stations.nc.json"
+    ref_path = staging_root / "refs" / "DPIRD" / "DPIRD_final_stations.nc.json"
     _write_reference(
         ref_path,
         {
@@ -83,7 +83,7 @@ def test_sanitize_generated_references_uses_reference_relpaths(tmp_path):
 
     summary = json_sanitizer.sanitize_generated_references(
         staging_volume_path=str(staging_root),
-        source_keys=["DPIRD/dpird_wa_stations.nc", "missing.nc"],
+        source_keys=["DPIRD/DPIRD_final_stations.nc", "missing.nc"],
     )
 
     payload = json.loads(ref_path.read_text(encoding="utf-8"))
