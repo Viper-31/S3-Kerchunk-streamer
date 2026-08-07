@@ -178,13 +178,17 @@ def resolve_secrets(kp: dict[str, Any]) -> tuple[str, str]:
         with open(secret_path, "rb") as f:
             secret_data = tomllib.load(f)
             access_key = str(secret_data[project_scope]["aws_access_key_id"]).strip()
-            secret_key = str(secret_data[project_scope]["aws_secret_access_key"]).strip()
+            secret_key = str(
+                secret_data[project_scope]["aws_secret_access_key"]
+            ).strip()
 
     except FileNotFoundError as exc:
         print(exc)
-    
+
     except KeyError as exc:
-        raise KeyError("See README.md to provide Acacia access and secret keys in repo env file")
+        raise KeyError(
+            "See README.md to provide Acacia access and secret keys in repo env file"
+        )
 
     if not access_key or not secret_key:
         raise ValueError(f"Secrets file at {secret_path} is missing required keys.")

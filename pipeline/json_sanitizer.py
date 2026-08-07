@@ -7,7 +7,7 @@ from typing import Any
 
 from pipeline.generate_json import reference_relpath_for_key
 
-NAN_base64= "AAAAAAAA+H8=" # This base64 value decodes to np.float64(nan)
+NAN_base64 = "AAAAAAAA+H8="  # This base64 value decodes to np.float64(nan)
 
 
 def _has_non_finite_FillValue(attrs: dict[str, Any]) -> bool:
@@ -20,29 +20,26 @@ def sanitize_reference_file(ref_path: Path) -> int:
     refs = payload.get("refs", {})
 
     sanitized_zattrs = 0
-   
+
     for ref_key, raw_value in refs.items():
         if not ref_key.endswith("/.zattrs") or not isinstance(raw_value, str):
             continue
-        
+
         attrs = json.loads(raw_value)
 
         if _has_non_finite_FillValue(attrs):
             attrs["_FillValue"] = NAN_base64
-            refs[ref_key] = json.dumps(
-                attrs,
-                separators = (",", ":"),
-                allow_nan = False
-            )
+            refs[ref_key] = json.dumps(attrs, separators=(",", ":"), allow_nan=False)
             sanitized_zattrs += 1
 
     if sanitized_zattrs:
         ref_path.write_text(
             json.dumps(payload, separators=(",", ":"), allow_nan=False),
-            encoding = "utf-8"
-        )      
+            encoding="utf-8",
+        )
 
     return sanitized_zattrs
+
 
 def sanitize_generated_references(
     *,
