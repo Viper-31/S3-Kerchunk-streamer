@@ -56,4 +56,6 @@ coverage.xml
 *.lcov
 .hypothesis/
 .pytest_cache/
-cover/
+cover/# pixi environments
+.pixi/*
+!.pixi/config.toml

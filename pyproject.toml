@@ -1,46 +1,40 @@
 [project]
-name = "S3-Kerchunk-Streamer"
+authors = [{name = "JohnC", email = "chewyunpin@gmail.com"}]
+dependencies = []
+name = "S3-Kerchunk-streamer"
+requires-python = ">= 3.12"
 version = "0.1.0"
-description = "VirtualiZarr + Kerchunk to generate Parquet refs of S3 objects"
-requires-python = ">=3.12"
-readme= "README.md"
-dependencies=[
-    "boto3 >=1.42.0,<2",
-    "dask >=2026.3.0,<2027",
-    "distributed >=2026.3.0,<2027",
-    "fsspec >=2026.3.0,<2027",
-    "h5netcdf >=1.8.1,<2",
-    "h5py >=3.16.0,<4",
-    "hdf5plugin >=6.0.0,<7",
-    "ipykernel >=7.2.0,<8",
-    "kerchunk >=0.2.10,<1",
-    "obspec >=0.1.0,<1",
-    "obspec-utils >=0.9.0,<1",
-    "obstore >=0.9.4,<1",
-    "s3fs >=2026.3.0,<2027",
-    "virtualizarr >=2.6.1,<3",
-    "xarray >=2026.4.0,<2027",
-    "zarr >=3.2.0,<4",
-]
 
-[tool.pytest.ini_options]
-pythonpath= "."
-testpaths= ["tests"]
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
 
-addopts= "--cov-branch --cov=pipeline --cov-report=term --cov-report=html"
-# Use pytest -m 'not e2e' to exclude dry-run e2e tests
-# Use pytest -m 'e2e' for just dry-run e2e tests
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["win-64", "linux-64", "osx-64", "osx-arm64"]
 
-# Register markers to avoid warnings
-markers= [
-    "e2e: end-to-end integration tests that run against sample S3 targets",
-    "integration: tests that require external dependencies or complex setups"
-    ]
+[tool.pixi.tasks]
 
-[dependency-groups]
-dev = [
-    "bokeh >=3.9.0,<4",
-    "nbstripout >=0.9.1,<1",
-    "pytest >=9.0.3,<10",
-    "pytest-cov >=7.1.0,<8",
-]
+[tool.pixi.dependencies]
+boto3 = ">=1.42.0,<2"
+dask = ">=2026.3.0,<2027"
+distributed = ">=2026.3.0,<2027"
+fsspec = ">=2026.3.0,<2027"
+h5netcdf = ">=1.8.1,<2"
+h5py = ">=3.16.0,<4"
+hdf5plugin = ">=6.0.0,<7"
+ipykernel = ">=7.2.0,<8"
+kerchunk = ">=0.2.10,<1"
+obspec = ">=0.1.0,<1"
+obstore = ">=0.9.4,<1"
+s3fs = ">=2026.3.0,<2027"
+xarray = ">=2026.4.0,<2027"
+zarr = ">=3.2.0,<4"
+virtualizarr = ">=2.7.2,<3"
+
+[tool.pixi.feature.dev.dependencies]
+bokeh = "*"
+nbstripout = "*"
+pytest = "*"
+pytest-cov = "*"
+ruff = "*"
