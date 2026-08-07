@@ -31,10 +31,53 @@ s3fs = ">=2026.3.0,<2027"
 xarray = ">=2026.4.0,<2027"
 zarr = ">=3.2.0,<4"
 virtualizarr = ">=2.7.2,<3"
+obspec_utils = ">=0.9.0,<0.10"
 
 [tool.pixi.feature.dev.dependencies]
-bokeh = "*"
-nbstripout = "*"
-pytest = "*"
-pytest-cov = "*"
-ruff = "*"
+bokeh = ">=3.9.0,<4"
+nbstripout = ">=0.9.1,<1"
+pytest = ">=9.0.3,<10"
+pytest-cov = ">=7.1.0,<8"
+ruff = ">=0.15.15,<0.16"
+
+[tool.pixi.environments]
+default = { features = ["dev"], solve-group = "main" }
+runtime = { solve-group = "main" }
+
+[tool.pixi.feature.dev.tasks]
+test = "pytest -m 'not e2e'"
+"test:cov" = { cmd = "pytest -m 'not e2e' --cov=pipeline --cov-branch --cov-report=term-missing --cov-report=xml --cov-report=html" }
+"test:e2e" = "pytest -m e2e"
+"format:check" = "ruff format --check ."
+format = "ruff format ."
+lint = "ruff check ."
+check = { depends-on = ["format:check", "lint", "test"] }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = ["--strict-markers"]
+markers = [
+    "e2e: end-to-end tests requiring external S3 resources",
+    "integration: tests requiring external dependencies or complex setup",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-include = ["*.ipynb"]
+extend-exclude = [
+    ".pixi",
+    ".venv",
+    ".pytest_cache",
+    "htmlcov",
+    "logs",
+    ".runtime_logs",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "W"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pipeline", "utils"]
