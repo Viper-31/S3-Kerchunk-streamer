@@ -1,5 +1,4 @@
 [project]
-authors = [{name = "JohnC", email = "chewyunpin@gmail.com"}]
 dependencies = []
 name = "S3-Kerchunk-streamer"
 requires-python = ">= 3.12"
